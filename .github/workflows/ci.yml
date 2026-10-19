@@ -40,10 +40,6 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         python: ['3.11', '3.12', '3.13', '3.14']
     env:
-      SESSIONBRIDGE_HOME: ${{ runner.temp }}/sessionbridge-test-state
-      CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude-test-state
-      CODEX_HOME: ${{ runner.temp }}/codex-test-state
-      XDG_DATA_HOME: ${{ runner.temp }}/xdg-test-state
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PYTHONUTF8: '1'
     steps:
@@ -57,6 +53,20 @@ jobs:
           cache-dependency-path: |
             requirements.lock
             requirements-dev.lock
+      - name: Isolate client and application data
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          directories = {
+              "SESSIONBRIDGE_HOME": "sessionbridge-test-state",
+              "CLAUDE_CONFIG_DIR": "claude-test-state",
+              "CODEX_HOME": "codex-test-state",
+              "XDG_DATA_HOME": "xdg-test-state",
+          }
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as stream:
+              for key, directory in directories.items():
+                  stream.write(f"{key}={Path(os.environ['RUNNER_TEMP']) / directory}\n")
       - run: python -m pip install -r requirements-dev.lock
       - run: python -m pip install --no-deps -e .
       - run: python -m pytest -q -p no:cacheprovider
