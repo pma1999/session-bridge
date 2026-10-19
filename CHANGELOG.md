@@ -9,6 +9,7 @@ This file records notable user-facing changes. Version numbers refer to the proj
 - Unified title, path and ID search across the selector and CLI: accent/case-insensitive keywords, partial words and stable phrase ranking.
 - Applied the same directory scope to linked conversations and added a visible scope switch, cancellation and empty-scope guidance.
 - Fixed Codex sessions recorded with Windows extended-length (`\\?\`) paths being refused with `source_path_invalid`; out-of-profile paths remain refused.
+- Fixed conversion and sync of Codex sessions with subagents failing with `source_not_found` when a subagent's history lives only in its rollout file.
 
 ## 0.3.1
 

@@ -187,12 +187,16 @@ def read(profile, ref, *, snapshot=False):
     raw, records, history, turns = [], [], [], []
     related = []
     ambiguous = False
+    locator = ref.locator
     state_db = base / "state_5.sqlite"
     if state_db.exists():
         with database(state_db) as con:
             if "id" in columns(con, "threads"):
                 for row in con.execute("SELECT * FROM threads WHERE id=?", (ref.native_id,)):
-                    raw.append({"table": "threads", "row": dict(row)})
+                    value = dict(row)
+                    raw.append({"table": "threads", "row": value})
+                    # Spawn-edge refs carry no locator; the thread's own row names its rollout.
+                    locator = locator or value.get("rollout_path") or ""
             if {"parent_thread_id", "child_thread_id"} <= columns(con, "thread_spawn_edges"):
                 for edge in con.execute(
                     "SELECT parent_thread_id,child_thread_id,status FROM thread_spawn_edges WHERE parent_thread_id=?",
@@ -246,7 +250,7 @@ def read(profile, ref, *, snapshot=False):
         if not snapshot:
             raise BridgeError("source_active", "La sesión de origen está activa; solicita una instantánea.")
         warnings.append("source_active_snapshot")
-    path = scoped(ref.locator, base) if ref.locator else None
+    path = scoped(locator, base) if locator else None
     if path and not path.exists() and Path(str(path) + ".zst").exists():
         path = Path(str(path) + ".zst")
     if path and path.exists():

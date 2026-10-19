@@ -1000,6 +1000,9 @@ def test_codex_spawn_edges_populate_discovery_parent_filter_and_transferable_chi
     selected = next(r for r in refs if r.key == relation.key)
     assert selected.parent_id == "parent" and selected.cwd == "/repo"
     assert [m.text for m in project(codex.read(p, selected)).messages] == ["child prompt"]
+    # Related-tree capture reads the edge ref directly; it carries no locator of its own.
+    assert relation.locator == ""
+    assert [m.text for m in project(codex.read(p, relation)).messages] == ["child prompt"]
 
 
 def test_managed_attachment_embeds_stable_bytes_before_source_changes(tmp_path):
