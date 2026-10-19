@@ -8,6 +8,7 @@ This file records notable user-facing changes. Version numbers refer to the proj
 - Fixed multiword title completion replacing only the last word and producing an invalid selection.
 - Unified title, path and ID search across the selector and CLI: accent/case-insensitive keywords, partial words and stable phrase ranking.
 - Applied the same directory scope to linked conversations and added a visible scope switch, cancellation and empty-scope guidance.
+- Fixed Codex sessions recorded with Windows extended-length (`\\?\`) paths being refused with `source_path_invalid`; out-of-profile paths remain refused.
 
 ## 0.3.1
 

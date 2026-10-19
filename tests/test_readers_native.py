@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 import time
 import tracemalloc
@@ -338,6 +339,50 @@ def test_reader_ref_cannot_escape_profile(tmp_path):
     with pytest.raises(BridgeError) as err:
         claude.read(p, ref)
     assert err.value.code == "source_path_invalid"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows extended-length paths")
+def test_codex_reads_extended_length_rollout_and_attachment_paths(tmp_path):
+    p = profile(tmp_path, "codex")
+    path = tmp_path / "sessions/2026/10/13/rollout-x.jsonl"
+    image = tmp_path / "attachments/image.png"
+    image.parent.mkdir(parents=True)
+    image.write_bytes(b"png")
+    jsonl(
+        path,
+        [
+            {"type": "session_meta", "payload": {"id": "x"}},
+            {
+                "type": "response_item",
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "local_image", "path": "\\\\?\\" + str(image)}],
+                },
+            },
+            {"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": "hi"}},
+        ],
+    )
+    with sqlite3.connect(tmp_path / "state_5.sqlite") as connection:
+        connection.execute("CREATE TABLE threads(id TEXT, rollout_path TEXT)")
+        connection.execute("INSERT INTO threads VALUES(?,?)", ("x", "\\\\?\\" + str(path)))
+    (ref,) = codex.discover(p)
+    conv = codex.read(p, ref)
+    assert [e.text for e in conv.events if e.active and e.kind == "message"][-1] == "hi"
+    assert [a.managed for a in conv.attachments] == [True]
+    outside = tmp_path.parent / (tmp_path.name + "-outside.jsonl")
+    outside.write_text("{}", encoding="utf-8")
+    unc = "localhost\\" + str(outside).replace(":", "$", 1)
+    for locator in (
+        "\\\\?\\" + str(outside),
+        "\\\\?\\unc\\" + unc,
+        "\\\\?\\GLOBALROOT\\x",
+        "\\\\?\\sessions\\2026\\10\\13\\rollout-x.jsonl",
+    ):
+        escaped = SessionRef(profile_id=p.id, native_id="x", tool="codex", locator=locator)
+        with pytest.raises(BridgeError) as err:
+            codex.read(p, escaped)
+        assert err.value.code == "source_path_invalid"
 
 
 def test_opencode_reads_uncheckpointed_wal_without_writing(tmp_path):

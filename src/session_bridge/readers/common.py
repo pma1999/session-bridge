@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import io
 import json
+import ntpath
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -18,9 +20,25 @@ def root(profile, marker, nested):
     return home if (home / marker).exists() or home.name == nested[-1] else home.joinpath(*nested)
 
 
+def native_path(value):
+    """Drop the Windows extended-length prefix that Codex records, so scope checks compare like forms."""
+    value = str(value)
+    if os.name != "nt":
+        return value
+    probe = value.replace("/", "\\")
+    if probe[:8].upper() == "\\\\?\\UNC\\":
+        plain = "\\\\" + probe[8:]
+    elif probe.startswith("\\\\?\\"):
+        plain = probe[4:]
+    else:
+        return value
+    # Device namespaces and relative remainders keep their prefix, so the scope check refuses them.
+    return plain if ntpath.isabs(plain) and ntpath.splitdrive(plain)[0] else value
+
+
 def scoped(path, base):
-    path = Path(path).resolve()
-    if not path.is_relative_to(Path(base).resolve()):
+    path = Path(native_path(path)).resolve()
+    if not path.is_relative_to(Path(native_path(base)).resolve()):
         raise BridgeError("source_path_invalid", "La ruta no pertenece al perfil seleccionado.")
     return path
 
@@ -378,7 +396,7 @@ def attachments_in(records, base):
                     except (ValueError, binascii.Error):
                         attachment.status = "invalid_embedded_data"
                 elif local:
-                    lexical = Path(os.path.abspath(local))
+                    lexical = Path(os.path.abspath(native_path(local)))
                     target = lexical.resolve()
                     claimed_managed = any(lexical.is_relative_to(root) for root in managed_roots)
                     is_managed = any(target.is_relative_to(root) for root in managed_roots)
