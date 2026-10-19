@@ -318,13 +318,14 @@ def test_backup_failure_never_publishes_empty_or_partial_output(tmp_path, monkey
 def test_backup_publication_does_not_replace_a_concurrent_file(tmp_path, monkeypatch):
     store = SyncStore(tmp_path / "source")
     output = tmp_path / "backup.sqlite3"
-    real_rename = os.rename
+    primitive = "rename" if os.name == "nt" else "link"
+    real_publish = getattr(os, primitive)
 
-    def race_rename(source, destination, *args, **kwargs):
+    def race_publish(source, destination, *args, **kwargs):
         Path(destination).write_bytes(b"other writer")
-        return real_rename(source, destination, *args, **kwargs)
+        return real_publish(source, destination, *args, **kwargs)
 
-    monkeypatch.setattr(os, "rename", race_rename)
+    monkeypatch.setattr(os, primitive, race_publish)
     with pytest.raises(BridgeError):
         store.backup(output)
     assert output.read_bytes() == b"other writer"
@@ -337,13 +338,14 @@ def test_restore_publication_does_not_replace_a_concurrent_database(tmp_path, mo
     source.backup(backup)
     destination = tmp_path / "restored"
     destination.mkdir()
-    real_rename = os.rename
+    primitive = "rename" if os.name == "nt" else "link"
+    real_publish = getattr(os, primitive)
 
-    def race_rename(temp, final, *args, **kwargs):
+    def race_publish(temp, final, *args, **kwargs):
         Path(final).write_bytes(b"other writer")
-        return real_rename(temp, final, *args, **kwargs)
+        return real_publish(temp, final, *args, **kwargs)
 
-    monkeypatch.setattr(os, "rename", race_rename)
+    monkeypatch.setattr(os, primitive, race_publish)
     with pytest.raises(BridgeError):
         SyncStore.restore(backup, destination)
     assert (destination / "sync.sqlite3").read_bytes() == b"other writer"

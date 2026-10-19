@@ -3,12 +3,20 @@ import sqlite3
 import subprocess
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from session_bridge.errors import BridgeError
 from session_bridge.models import Profile, ProjectedMessage, WriteRequest
 from session_bridge.writers import claude, codex, common, opencode, registry
+
+
+@pytest.fixture
+def verified_windows_platform(monkeypatch):
+    """Exercise the verified Windows gate without changing the host filesystem API."""
+    monkeypatch.setattr(registry, "sys", SimpleNamespace(platform="win32"))
+    monkeypatch.setattr(registry, "platform", SimpleNamespace(machine=lambda: "AMD64"))
 
 
 def request(tmp_path, tool="claude", count=4):
@@ -100,7 +108,9 @@ def test_native_unknown_version_never_writes_or_silently_falls_back(tmp_path, to
     assert not Path(req.profile.home).exists()
 
 
-def test_declared_verified_claude_version_cannot_bypass_actual_binary_check(tmp_path, monkeypatch):
+def test_declared_verified_claude_version_cannot_bypass_actual_binary_check(
+    tmp_path, monkeypatch, verified_windows_platform
+):
     req = request(tmp_path)
     monkeypatch.setattr(common, "run", lambda *a, **k: subprocess.CompletedProcess([], 0, "2.1.999", ""))
     with pytest.raises(BridgeError) as exc:
@@ -129,7 +139,9 @@ def test_opencode_10000_message_encoder_is_complete_not_truncated(tmp_path):
     assert data["messages"][-1]["content"][0]["text"] == req.messages[-1].text
 
 
-def test_observed_native_opencode_limit_refuses_before_launch_or_write(tmp_path, monkeypatch):
+def test_observed_native_opencode_limit_refuses_before_launch_or_write(
+    tmp_path, monkeypatch, verified_windows_platform
+):
     req = request(tmp_path, "opencode", count=9363)
     monkeypatch.setattr(common, "run", lambda *a, **k: pytest.fail("oversized import launched client"))
     assert registry.capability(req.profile).max_messages == 9362
@@ -220,7 +232,9 @@ def test_codex_responses_items_do_not_inject_system_authority(tmp_path):
     assert items[1]["content"][0]["type"] == "output_text"
 
 
-def test_codex_native_history_preserves_leading_summary_roles_and_exact_text(tmp_path, monkeypatch):
+def test_codex_native_history_preserves_leading_summary_roles_and_exact_text(
+    tmp_path, monkeypatch, verified_windows_platform
+):
     req = request(tmp_path, "codex")
     req.messages = [
         ProjectedMessage(role="assistant", text="Original summary: España 🚀"),
@@ -255,7 +269,9 @@ def test_codex_native_history_preserves_leading_summary_roles_and_exact_text(tmp
     ]
 
 
-def test_codex_native_ui_mismatch_leaves_recoverable_complete_file(tmp_path, monkeypatch):
+def test_codex_native_ui_mismatch_leaves_recoverable_complete_file(
+    tmp_path, monkeypatch, verified_windows_platform
+):
     req = request(tmp_path, "codex")
     monkeypatch.setattr(
         common, "run", lambda *a, **k: subprocess.CompletedProcess([], 0, "codex-cli 0.159.0", "")
@@ -269,7 +285,9 @@ def test_codex_native_ui_mismatch_leaves_recoverable_complete_file(tmp_path, mon
     assert codex.messages(req.profile, req.native_id) == [(m.role, m.text) for m in req.messages]
 
 
-def test_codex_native_interrupted_publish_has_no_partial_history(tmp_path, monkeypatch):
+def test_codex_native_interrupted_publish_has_no_partial_history(
+    tmp_path, monkeypatch, verified_windows_platform
+):
     from session_bridge import archive
 
     req = request(tmp_path, "codex")
@@ -283,7 +301,9 @@ def test_codex_native_interrupted_publish_has_no_partial_history(tmp_path, monke
     assert not list(Path(req.profile.home).rglob(".sbridge-*"))
 
 
-def test_codex_verify_requires_native_presentation_and_detects_later_changes(tmp_path, monkeypatch):
+def test_codex_verify_requires_native_presentation_and_detects_later_changes(
+    tmp_path, monkeypatch, verified_windows_platform
+):
     req = request(tmp_path, "codex")
     expected = [(m.role, m.text) for m in req.messages]
     monkeypatch.setattr(
@@ -407,3 +427,28 @@ def test_codex_growing_rollout_cannot_bypass_read_limit(tmp_path, monkeypatch):
     with pytest.raises(BridgeError) as exc:
         codex.inspect(req.profile, req.native_id)
     assert exc.value.code == "native_limit"
+
+
+@pytest.mark.parametrize("tool", ["claude", "opencode", "codex"])
+@pytest.mark.parametrize(
+    "system,machine,native",
+    [
+        ("win32", "AMD64", True),
+        ("win32", "ARM64", False),
+        ("linux", "x86_64", False),
+        ("darwin", "arm64", False),
+    ],
+)
+def test_native_platform_gate_refuses_unverified_platforms_before_client_or_write(
+    tmp_path, monkeypatch, tool, system, machine, native
+):
+    req = request(tmp_path, tool)
+    monkeypatch.setattr(registry, "sys", SimpleNamespace(platform=system))
+    monkeypatch.setattr(registry, "platform", SimpleNamespace(machine=lambda: machine))
+    assert registry.capability(req.profile).native is native
+    if not native:
+        monkeypatch.setattr(common, "run", lambda *a, **k: pytest.fail("unverified client launched"))
+        with pytest.raises(BridgeError) as error:
+            registry.write(req)
+        assert error.value.code == "native_unsupported"
+        assert not Path(req.profile.home).exists()

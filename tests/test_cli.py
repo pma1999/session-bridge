@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import sysconfig
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -209,11 +210,16 @@ def test_invalid_date_is_a_stable_json_error(monkeypatch, capsys):
     assert fake.calls == []
 
 
-def test_real_entrypoint_emits_stable_json_for_usage_errors():
-    executable = Path(__file__).parents[1] / ".venv" / "Scripts" / "sessionbridge.exe"
+def test_real_entrypoint_emits_stable_json_for_usage_errors(tmp_path):
+    name = "sessionbridge.exe" if os.name == "nt" else "sessionbridge"
+    executable = Path(sysconfig.get_path("scripts")) / name
     env = os.environ.copy()
-    task_tmp = Path(__file__).parents[1] / "work" / "cli" / "tmp"
-    env.update(TEMP=str(task_tmp), TMP=str(task_tmp), PYTEST_DISABLE_PLUGIN_AUTOLOAD="1")
+    env.update(
+        TEMP=str(tmp_path),
+        TMP=str(tmp_path),
+        SESSIONBRIDGE_HOME=str(tmp_path / "state"),
+        PYTEST_DISABLE_PLUGIN_AUTOLOAD="1",
+    )
     for args, code in (
         (["unknown", "--json"], 2),
         (["convert", "local:abc", "--json"], 2),

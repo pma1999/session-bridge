@@ -4,9 +4,9 @@ This record summarizes the evidence available for the 0.3.1 source state. It des
 
 ## Automated checks
 
-The project test suite passed **246 tests**, with **one skipped** Windows symlink-privilege case. A separate directory-junction safety check was exercised. Ruff and Python compilation also passed. The tests cover archive integrity, native readers and writers, six transfer directions, sync capture and branching, recovery, backup and restore, CLI behavior, and refusal paths. Release tests additionally check license inclusion, current-checkout version selection, private-file exclusion, checksum validation, and rejection of unexpected wheel members or package identities.
+The project test suite passed **258 tests**, with **one skipped** Windows symlink-privilege case. A separate directory-junction safety check was exercised. Ruff and Python compilation also passed. The tests cover archive integrity, native readers and writers, six transfer directions, sync capture and branching, recovery, backup and restore, CLI behavior, and refusal paths. Release tests additionally check license inclusion, current-checkout version selection, private-file exclusion, checksum validation, and rejection of unexpected wheel members or package identities.
 
-The run was on Windows x64 with Python 3.13.1. The skipped symlink case reflects unavailable Windows privilege, not a passing symlink test. There is no configured static typecheck. Linux test-suite and CI results have not yet been observed for this release.
+The local run was on Windows x64 with Python 3.13.1. The skipped symlink case reflects unavailable Windows privilege, not a passing symlink test. There is no configured static typecheck. Hosted CI is configured for Windows and Ubuntu with Python 3.11–3.14, package verification, and Windows installation with worker restart. [Per-run results](https://github.com/pma1999/session-bridge/actions/workflows/ci.yml) show which checks actually completed for each commit. Tests of mocked Windows adapters on Ubuntu do not establish native Linux compatibility.
 
 ## Native-client observations
 

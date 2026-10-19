@@ -128,6 +128,21 @@ def test_wsl_install_bootstraps_fixed_python_and_returns_detected_metadata(monke
     wheel.write_bytes(b"placeholder")
     calls = []
 
+    class WindowsWheel:
+        name, suffix = wheel.name, wheel.suffix
+
+        def resolve(self, *, strict):
+            wheel.resolve(strict=strict)
+            return self
+
+        def is_file(self):
+            return wheel.is_file()
+
+        def __str__(self):
+            return f"C:/fixture with spaces/{self.name}"
+
+    monkeypatch.setattr(wsl, "Path", lambda path: WindowsWheel())
+
     def run(argv, **kwargs):
         calls.append((argv, kwargs))
         return SimpleNamespace(
@@ -150,7 +165,7 @@ def test_wsl_install_bootstraps_fixed_python_and_returns_detected_metadata(monke
     assert result["path_status"] == "added" and result["on_path"] is False
     argv, kwargs = calls[0]
     assert argv[:6] == ["wsl.exe", "--distribution", "Ubuntu", "--exec", "python3", "-c"]
-    assert argv[-1] == "Ubuntu" and argv[-2].startswith("/mnt/")
+    assert argv[-1] == "Ubuntu" and argv[-2] == f"/mnt/c/fixture with spaces/{wheel.name}"
     assert "shell" not in kwargs
     compile(argv[6], "wsl-install-bootstrap", "exec")
 
