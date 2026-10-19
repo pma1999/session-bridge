@@ -2,12 +2,41 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from prompt_toolkit import PromptSession, prompt
-from prompt_toolkit.completion import FuzzyCompleter, WordCompleter
+from prompt_toolkit.completion import Completer, Completion
 
+from .catalog import same_directory, search_rank, search_text
 from .errors import BridgeError
+
+ALL_PROJECTS = "Buscar en todos los proyectos"
+CURRENT_PROJECT = "Buscar solo en la carpeta actual"
+CANCEL = "Cancelar"
+
+
+class _ChoiceCompleter(Completer):
+    def __init__(self, values: list[str]):
+        self.values = [(value, search_text(value)) for value in values]
+
+    def matches(self, query: str) -> list[str]:
+        matches = [
+            (value, rank)
+            for value, key in self.values
+            if (rank := search_rank(query, value, normalized_value=key)) is not None
+        ]
+        # Keep recent/catalogue order for ties; an exact phrase precedes scattered keywords.
+        matches.sort(key=lambda item: item[1])
+        return [value for value, _ in matches]
+
+    def get_completions(self, document, complete_event):
+        query = document.text
+        for value in self.matches(query):
+            # Completion cannot delete a suffix after the cursor; avoid inserting a broken choice.
+            if document.text_after_cursor:
+                continue
+            yield Completion(value, start_position=-len(document.text_before_cursor), display=_visible(value))
 
 
 def _visible(value: Any) -> str:
@@ -31,19 +60,50 @@ def confirm(message: str, default: bool = False) -> bool:
 def _choose(label: str, values: list[str]) -> str:
     if not values:
         raise BridgeError("no_choices", f"No hay opciones disponibles para {label}.")
-    session: PromptSession[str] = PromptSession(completer=FuzzyCompleter(WordCompleter(values)))
+    completer = _ChoiceCompleter(values)
+    session: PromptSession[str] = PromptSession(completer=completer, complete_while_typing=True)
     while True:
         answer = session.prompt(f"{label} (escribe para buscar): ").strip()
         if answer in values:
             return answer
-        matches = [value for value in values if answer.casefold() in value.casefold()]
+        matches = completer.matches(answer)
         if len(matches) == 1:
             return matches[0]
         if not answer and len(values) == 1:
             return values[0]
-        print("Elige una opción exacta de la lista.")
-        for value in matches or values:
+        print(
+            "Hay varias coincidencias; concreta la búsqueda o usa Tab y las flechas."
+            if matches
+            else "Sin coincidencias. Prueba otras palabras; Ctrl+C cancela."
+        )
+        for value in (matches or values)[:30]:
             print(f"  {_visible(value)}")
+        if len(matches or values) > 30:
+            print("Mostrando 30 opciones. Escribe para filtrar; Tab permite recorrer las coincidencias.")
+
+
+def _source_session(bridge: Any, cwd: str | None):
+    launch_directory = str(Path.cwd())
+    while True:
+        print("Carpeta: " + _visible(cwd) if cwd is not None else "Ámbito: todos los proyectos")
+        sessions = bridge.list_sessions(cwd=cwd)
+        for warning in getattr(bridge, "discovery_errors", []):
+            print("Aviso de catálogo: " + _visible(warning.get("message", "No se pudo leer un perfil.")))
+        refs = {
+            f"{_visible(ref.title or 'Sin título')} | {_visible(ref.cwd)} | {_visible(ref.key)}": ref
+            for ref in sessions
+        }
+        scope = ALL_PROJECTS if cwd is not None else CURRENT_PROJECT
+        if not refs:
+            print("No hay sesiones en este ámbito. Puedes cambiar de ámbito o cancelar.")
+        print("Escribe título, carpeta o ID. Tab muestra opciones; Ctrl+C cancela. " + scope + ".")
+        choice = _choose("Sesión de origen", [*refs, scope, CANCEL])
+        if choice == scope:
+            cwd = None if cwd is not None else launch_directory
+        elif choice == CANCEL:
+            return None
+        else:
+            return refs[choice]
 
 
 def prompt_profile(values: dict[str, Any]) -> dict[str, Any]:
@@ -64,15 +124,11 @@ def prompt_profile(values: dict[str, Any]) -> dict[str, Any]:
     return values
 
 
-def run_wizard(bridge: Any) -> dict[str, Any]:
+def run_wizard(bridge: Any, *, cwd: str | None = None) -> dict[str, Any]:
     """Select a source and target, inspect a preview, then request explicit execution."""
-    sessions = bridge.list_sessions()
-    refs = {
-        f"{_visible(ref.title or 'Sin título')} | {_visible(ref.cwd)} | {_visible(ref.key)}": ref
-        for ref in sessions
-    }
-    choice = _choose("Sesión de origen", sorted(refs))
-    ref = refs[choice]
+    ref = _source_session(bridge, cwd)
+    if ref is None:
+        return {"cancelled": True}
     key = ref.key
     snapshot = ref.active is True
     if snapshot:
@@ -168,19 +224,42 @@ def run_wizard(bridge: Any) -> dict[str, Any]:
     return transfer
 
 
-def run_home(bridge: Any) -> dict[str, Any]:
+def run_home(bridge: Any, *, cwd: str | None = None) -> dict[str, Any]:
     """Keep linked conversations discoverable in the existing keyboard-first CLI."""
     from .sync import SyncService
     from .sync_cli import _ensure_worker
 
     service = SyncService(bridge=bridge)
-    links = service.list()
-    if not links:
-        return run_wizard(bridge)
-    labels = {f"{_visible(link['name'])} | {_visible(link['state'])} | {link['id']}": link for link in links}
-    choice = _choose("Conversación o nueva conversión", ["Convertir otra sesión", *sorted(labels)])
-    if choice == "Convertir otra sesión":
-        return run_wizard(bridge)
+    all_links = service.list()
+    if not all_links:
+        return run_wizard(bridge, cwd=cwd)
+    launch_directory = str(Path.cwd())
+    while True:
+        links = (
+            all_links
+            if cwd is None
+            else [
+                link
+                for link in all_links
+                if any(
+                    same_directory(endpoint.get("cwd") or "", cwd) for endpoint in link.get("endpoints", [])
+                )
+            ]
+        )
+        print("Carpeta: " + _visible(cwd) if cwd is not None else "Ámbito: todos los proyectos")
+        labels = {
+            f"{_visible(link['name'])} | {_visible(link['state'])} | {link['id']}": link for link in links
+        }
+        scope = ALL_PROJECTS if cwd is not None else CURRENT_PROJECT
+        choice = _choose("Conversación o nueva conversión", ["Convertir otra sesión", *labels, scope, CANCEL])
+        if choice == scope:
+            cwd = None if cwd is not None else launch_directory
+            continue
+        if choice == CANCEL:
+            return {"cancelled": True}
+        if choice == "Convertir otra sesión":
+            return run_wizard(bridge, cwd=cwd)
+        break
     linked = labels[choice]
     if linked["paused"]:
         if not confirm("La conversación está en pausa. ¿Reanudar su seguimiento?", default=False):

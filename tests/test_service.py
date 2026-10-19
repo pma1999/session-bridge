@@ -15,6 +15,28 @@ from session_bridge.models import (
 from session_bridge.service import Bridge
 
 
+def test_catalog_directory_filter_is_exact_normalized_and_not_a_prefix(app, monkeypatch):
+    bridge, ref, *_ = app
+    refs = [
+        ref.model_copy(update={"native_id": key, "cwd": cwd})
+        for key, cwd in (
+            ("same", "c:\\Work\\App\\"),
+            ("prefix", "C:/Work/Application"),
+            ("nested", "C:/Work/App/nested"),
+            ("unknown", ""),
+        )
+    ]
+    monkeypatch.setattr(bridge, "_discover", lambda _: refs)
+    assert {item.native_id for item in bridge.list_sessions(cwd="C:/Work/App/./")} == {"same"}
+
+
+def test_catalog_search_finds_accented_reordered_title_tokens(app, monkeypatch):
+    bridge, ref, *_ = app
+    ref.title = "Diseña un motor de búsqueda"
+    monkeypatch.setattr(bridge, "_discover", lambda _: [ref])
+    assert bridge.list_sessions(search="BUSQUEDA   motor disena")
+
+
 @pytest.fixture
 def app(tmp_path, monkeypatch):
     source = Profile(id="claude-test", tool="claude", home=str(tmp_path / "source"))

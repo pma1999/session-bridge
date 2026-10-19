@@ -229,11 +229,13 @@ def root(
     ctx: typer.Context,
     json_output: bool = typer.Option(False, "--json", help="Devuelve una respuesta JSON versionada."),
     no_color: bool = typer.Option(False, "--no-color", help="Desactiva el color de terminal."),
+    all_projects: bool = typer.Option(False, "--all-projects", help="Busca en todas las carpetas."),
 ) -> None:
     """Intercambia sesiones locales con una vista previa auditable."""
     global _console_out, _console_err
     _state["json"] = json_output
     _state["no_color"] = no_color or bool(os.environ.get("NO_COLOR"))
+    _state["all_projects"] = all_projects
     _console_out = Console(markup=False, highlight=False, no_color=_state["no_color"])
     _console_err = Console(stderr=True, markup=False, highlight=False, no_color=_state["no_color"])
     if ctx.invoked_subcommand is None:
@@ -246,7 +248,7 @@ def root(
             raise BridgeError("interactive_json_unsupported", "El asistente interactivo requiere modo texto.")
         from .interactive import run_home
 
-        _emit(run_home(_bridge()))
+        _emit(run_home(_bridge(), cwd=None if all_projects else str(Path.cwd())))
 
 
 @app.command("list")
@@ -255,12 +257,17 @@ def list_sessions(
     profile: str | None = typer.Option(None, "--profile"),
     search: str | None = typer.Option(None, "--search"),
     cwd: str | None = typer.Option(None, "--cwd"),
+    all_projects: bool = typer.Option(False, "--all-projects", help="Lista sesiones de todas las carpetas."),
     archived: bool | None = typer.Option(None, "--archived/--not-archived"),
     parent: str | None = typer.Option(None, "--parent"),
     since: str | None = typer.Option(None, "--since", help="Fecha ISO AAAA-MM-DD."),
     until: str | None = typer.Option(None, "--until", help="Fecha ISO AAAA-MM-DD."),
 ) -> None:
     """Lista metadatos de sesiones; no incluye cuerpos de mensajes."""
+    all_projects = all_projects or _state.get("all_projects", False)
+    if all_projects and cwd is not None:
+        raise BridgeError("invalid_arguments", "Elige --cwd o --all-projects, no ambos.")
+    cwd = cwd if cwd is not None else None if all_projects else str(Path.cwd())
     for value in (since, until):
         if value:
             try:

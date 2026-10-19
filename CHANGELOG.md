@@ -2,6 +2,13 @@
 
 This file records notable user-facing changes. Version numbers refer to the project package.
 
+## 0.3.2
+
+- Scoped the interactive selector and session list to the launch directory by default, with an explicit global search option.
+- Fixed multiword title completion replacing only the last word and producing an invalid selection.
+- Unified title, path and ID search across the selector and CLI: accent/case-insensitive keywords, partial words and stable phrase ranking.
+- Applied the same directory scope to linked conversations and added a visible scope switch, cancellation and empty-scope guidance.
+
 ## 0.3.1
 
 - Added portable ZIP and wheel GitHub release assets with SHA-256 checksums and included project community documentation in the release bundle.

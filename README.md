@@ -16,7 +16,7 @@ Session Bridge is an independent community project. It is not affiliated with, e
 
 ## Requirements and installation
 
-Python 3.11 or newer is required. Download the [latest portable ZIP](https://github.com/pma1999/session-bridge/releases/latest/download/session-bridge-0.3.1-portable.zip) from GitHub Releases, or clone the repository:
+Python 3.11 or newer is required. Download the portable ZIP from the [latest release](https://github.com/pma1999/session-bridge/releases/latest), or clone the repository:
 
 ```powershell
 git clone https://github.com/pma1999/session-bridge.git
@@ -34,9 +34,16 @@ Before the first transfer, make your own backup of any native client data you ca
 
 ## Quick start
 
+The interactive selector and `list` show sessions from the directory where you start Session Bridge. Directory matching is exact after path normalization: sibling projects and nested directories are separate scopes. Sessions without a known working directory appear only in the global scope. Explicit session IDs remain usable from any directory.
+
+Type part of a title, path, or native ID to search. Search ignores case and accents, accepts partial words and keywords in any order, and replaces the complete search text when accepting a completion. Use Tab and the arrow keys to select; ambiguous matches require a more specific query or an explicit selection. The selector includes **Buscar en todos los proyectos** to change scope, and the equivalent CLI option is `--all-projects`.
+
 ```text
 sessionbridge
+sessionbridge --all-projects
 sessionbridge list --from claude --search "my project"
+sessionbridge list --all-projects --search "my project"
+sessionbridge list --cwd "C:\Projects\app"
 sessionbridge show claude-win:SESSION_ID
 sessionbridge convert claude-win:SESSION_ID --to opencode-win --dry-run
 sessionbridge convert claude-win:SESSION_ID --to opencode-win --resume

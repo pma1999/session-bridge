@@ -73,6 +73,44 @@ def _run_main(monkeypatch, capsys, argv):
     return code, capsys.readouterr()
 
 
+def test_list_defaults_to_launch_directory_and_all_projects_is_explicit(monkeypatch, capsys):
+    global fake
+    fake = FakeBridge()
+    code, output = _run_main(monkeypatch, capsys, ["list", "--json"])
+    assert code == 0, output
+    assert fake.calls[-1][1]["cwd"] == str(Path.cwd())
+    fake.calls.clear()
+    code, output = _run_main(monkeypatch, capsys, ["list", "--all-projects", "--json"])
+    assert code == 0, output
+    assert fake.calls[-1][1]["cwd"] is None
+
+
+def test_list_cannot_silently_combine_global_scope_and_explicit_directory(monkeypatch, capsys):
+    global fake
+    fake = FakeBridge()
+    code, output = _run_main(monkeypatch, capsys, ["list", "--all-projects", "--cwd", "/project", "--json"])
+    assert code == 2
+    assert json.loads(output.out)["error"]["code"] == "invalid_arguments"
+    assert fake.calls == []
+
+
+def test_interactive_entrypoint_passes_launch_directory_and_explicit_global_scope(monkeypatch, capsys):
+    global fake
+    fake = FakeBridge()
+    calls = []
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+
+    def home(bridge, **options):
+        calls.append(options)
+        return {"cancelled": True}
+
+    monkeypatch.setattr("session_bridge.interactive.run_home", home)
+    assert _run_main(monkeypatch, capsys, [])[0] == 0
+    assert _run_main(monkeypatch, capsys, ["--all-projects"])[0] == 0
+    assert calls == [{"cwd": str(Path.cwd())}, {"cwd": None}]
+
+
 def test_json_global_flag_after_command_and_metadata_filters(monkeypatch, capsys):
     global fake
     fake = FakeBridge()
@@ -92,7 +130,7 @@ def test_json_global_flag_after_command_and_metadata_filters(monkeypatch, capsys
                 "tool": "codex",
                 "profile": None,
                 "search": "demo",
-                "cwd": None,
+                "cwd": str(Path.cwd()),
                 "archived": None,
                 "parent": None,
                 "since": "2026-01-02",

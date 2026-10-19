@@ -14,6 +14,29 @@ def profile(tmp_path, tool):
     return Profile(id=tool, tool=tool, home=str(tmp_path), version="fixture")
 
 
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("Diseña un motor de búsqueda", "Diseña un motor de búsqueda"),
+        (None, "Original first message"),
+        ("", "Original first message"),
+    ],
+)
+def test_codex_discovery_preserves_visible_name_before_original_prompt_title(tmp_path, name, expected):
+    p = profile(tmp_path, "codex")
+    database = tmp_path / "state_5.sqlite"
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE threads(id TEXT, name TEXT, title TEXT, cwd TEXT)")
+        connection.execute(
+            "INSERT INTO threads VALUES(?,?,?,?)", ("example", name, "Original first message", "/demo")
+        )
+    before = database.read_bytes()
+    refs = codex.discover(p)
+    assert len(refs) == 1 and refs[0].title == expected
+    assert refs[0].cwd == "/demo"
+    assert database.read_bytes() == before
+
+
 def jsonl(path, records, tail=""):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(r) + "\n" for r in records) + tail, encoding="utf-8")

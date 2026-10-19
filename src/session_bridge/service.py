@@ -10,6 +10,7 @@ import uuid
 from pathlib import Path, PurePosixPath
 
 from .archive import atomic_write, read_package, write_package
+from .catalog import same_directory, search_matches
 from .errors import BridgeError
 from .models import (
     Capability,
@@ -151,9 +152,9 @@ class Bridge:
             )
         filtered = []
         for ref in result:
-            if search and search.casefold() not in " ".join([ref.title, ref.cwd, ref.native_id]).casefold():
+            if search and not search_matches(search, " ".join([ref.title, ref.cwd, ref.native_id])):
                 continue
-            if cwd and cwd.casefold() not in ref.cwd.casefold():
+            if cwd and not same_directory(ref.cwd, str(cwd)):
                 continue
             if archived is not None and ref.archived != archived:
                 continue

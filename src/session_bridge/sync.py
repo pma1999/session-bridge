@@ -396,7 +396,7 @@ class SyncService:
             "endpoints": [
                 {
                     key: endpoint.get(key)
-                    for key in ("key", "profile_id", "revision_id", "state", "error", "pending", "enabled")
+                    for key in ("key", "profile_id", "revision_id", "state", "error", "pending", "enabled", "cwd")
                 }
                 for endpoint in link["endpoints"]
             ],
