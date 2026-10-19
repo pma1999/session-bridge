@@ -155,6 +155,105 @@ def test_opencode_mixed_dedup_and_revert(tmp_path):
     assert len([e for e in conv.events if e.id == "m1"]) == 1
 
 
+def test_opencode_mirrored_generations_compact_once_and_keep_legacy_only_turns(tmp_path):
+    from session_bridge.projection import project
+
+    c, _path = oc_db(tmp_path)
+    for t in ("session", "session_v2"):
+        c.execute(
+            "insert into " + t + " values(?,?,?,?,?,?,?,?)", ("s", "t", "/repo", None, 1, 2, None, None)
+        )
+
+    def legacy(id, role, parts, **data):
+        c.execute(
+            "insert into message values(?,?,?,?,?)", (id, "s", 1, 1, json.dumps({"role": role, **data}))
+        )
+        for n, part in enumerate(parts):
+            c.execute(
+                "insert into part values(?,?,?,?,?,?)", (id + "p" + str(n), id, "s", 1, 1, json.dumps(part))
+            )
+
+    def v2(id, seq, kind, data):
+        c.execute(
+            "insert into session_message values(?,?,?,?,?,?,?)",
+            (id, "s", kind, seq, seq, seq, json.dumps(data)),
+        )
+
+    # OpenCode mirrors legacy rows into v2 under the same IDs. The legacy compaction answer has no v2
+    # row because v2 keeps the summary on the compaction row itself; a subtask stays legacy-only.
+    legacy("msg_01", "user", [{"type": "text", "text": "old question"}])
+    legacy("msg_02", "user", [{"type": "compaction"}], summary={"diffs": []})
+    legacy(
+        "msg_03",
+        "assistant",
+        [{"type": "text", "text": "legacy summary"}],
+        summary=True,
+        mode="compaction",
+        parentID="msg_02",
+    )
+    legacy("msg_04", "user", [{"type": "text", "text": "Continue"}])
+    legacy("msg_05", "user", [{"type": "text", "text": "subtask request"}])
+    legacy("msg_06", "assistant", [{"type": "text", "text": "after"}])
+    v2("msg_01", 1, "user", {"text": "old question"})
+    v2("msg_02", 2, "compaction", {"status": "completed", "summary": "summary", "recent": "recent turns"})
+    v2("msg_04", 3, "synthetic", {"text": "Continue"})
+    v2("msg_06", 4, "assistant", {"content": [{"type": "text", "text": "after"}]})
+    c.commit()
+    c.close()
+    p = profile(tmp_path, "opencode")
+    conv = opencode.read(p, opencode.discover(p)[0])
+    assert not conv.context_ambiguous
+    assert [(e.kind, e.text) for e in conv.events if e.active] == [
+        ("summary", "summary\n\n[Retained recent conversation]\nrecent turns"),
+        ("message", "Continue"),
+        ("message", "subtask request"),
+        ("message", "after"),
+    ]
+    messages = project(conv, context="current").messages
+    assert messages[0].text.count("summary") == 1 and messages[-1].text == "after"
+
+
+def test_opencode_invoked_skill_text_is_part_of_the_user_turn(tmp_path):
+    c, _path = oc_db(tmp_path)
+    c.execute("insert into session_v2 values(?,?,?,?,?,?,?,?)", ("s", "t", "/repo", None, 1, 2, None, None))
+    data = {
+        "text": "proceed with @review",
+        "skills": [{"id": "review", "text": "<skill_content>steps</skill_content>"}],
+    }
+    c.execute(
+        "insert into session_message values(?,?,?,?,?,?,?)", ("m1", "s", "user", 1, 1, 1, json.dumps(data))
+    )
+    c.commit()
+    c.close()
+    p = profile(tmp_path, "opencode")
+    conv = opencode.read(p, opencode.discover(p)[0])
+    # OpenCode sends the skill body to the model ahead of the prompt that invoked it.
+    assert [e.text for e in conv.events if e.active] == [
+        "<skill_content>steps</skill_content>",
+        "proceed with @review",
+    ]
+
+
+def test_opencode_unrelated_generations_stay_ambiguous(tmp_path):
+    c, _path = oc_db(tmp_path)
+    for t in ("session", "session_v2"):
+        c.execute(
+            "insert into " + t + " values(?,?,?,?,?,?,?,?)", ("s", "t", "/repo", None, 1, 2, None, None)
+        )
+    c.execute("insert into message values(?,?,?,?,?)", ("a", "s", 1, 1, json.dumps({"role": "user"})))
+    c.execute(
+        "insert into part values(?,?,?,?,?,?)",
+        ("p", "a", "s", 1, 1, json.dumps({"type": "text", "text": "x"})),
+    )
+    c.execute(
+        "insert into session_message values(?,?,?,?,?,?,?)", ("b", "s", "user", 1, 1, 1, '{"text":"y"}')
+    )
+    c.commit()
+    c.close()
+    p = profile(tmp_path, "opencode")
+    assert opencode.read(p, opencode.discover(p)[0]).context_ambiguous
+
+
 def test_codex_paginated_plus_rollout_no_duplicate_bodies(tmp_path):
     home = tmp_path / ".codex"
     home.mkdir()
@@ -458,6 +557,436 @@ def test_truncated_zstd_frame_is_rejected(tmp_path):
     with pytest.raises(BridgeError) as err:
         codex.read(p, ref)
     assert err.value.code == "source_corrupt"
+
+
+def _claude_user(uuid, parent, content, **extra):
+    return {
+        "type": "user",
+        "uuid": uuid,
+        "parentUuid": parent,
+        "message": {"role": "user", "content": content},
+        **extra,
+    }
+
+
+def _claude_assistant(uuid, parent, content, **extra):
+    return {
+        "type": "assistant",
+        "uuid": uuid,
+        "parentUuid": parent,
+        "message": {"role": "assistant", "content": content},
+        **extra,
+    }
+
+
+def _tool_use(call):
+    return [{"type": "tool_use", "id": call, "name": "Bash", "input": {"command": call}}]
+
+
+def _tool_result(call, output):
+    return [{"type": "tool_result", "tool_use_id": call, "content": output}]
+
+
+def test_claude_parallel_tool_results_and_metadata_leaves_are_not_branches(tmp_path):
+    from session_bridge.projection import project
+
+    p = profile(tmp_path, "claude")
+    parent = tmp_path / ".claude/projects/p/parent.jsonl"
+    jsonl(parent, [_claude_user("root", None, "start"), {"type": "last-prompt", "leafUuid": "root"}])
+    # A subagent transcript has no last-prompt pointer. Parallel calls chain the second tool_use
+    # after the first, so the first result is a leaf that belongs to the active turn.
+    jsonl(
+        tmp_path / ".claude/projects/p/parent/subagents/agent-x.jsonl",
+        [
+            _claude_user("q", None, "inspect", isSidechain=True),
+            _claude_assistant("t1", "q", _tool_use("c1"), isSidechain=True),
+            _claude_assistant("t2", "t1", _tool_use("c2"), isSidechain=True),
+            _claude_user("r1", "t1", _tool_result("c1", "first output"), isSidechain=True),
+            _claude_user("r2", "t2", _tool_result("c2", "second output"), isSidechain=True),
+            {
+                "type": "attachment",
+                "uuid": "hook",
+                "parentUuid": "r2",
+                "isSidechain": True,
+                "attachment": {"type": "hook_success", "content": "ok"},
+            },
+            _claude_assistant("done", "r2", [{"type": "text", "text": "both inspected"}], isSidechain=True),
+            {"type": "system", "subtype": "turn_duration", "uuid": "timing", "parentUuid": "r1"},
+        ],
+    )
+    ref = next(r for r in claude.discover(p) if r.parent_id)
+    conv = claude.read(p, ref)
+    assert not conv.context_ambiguous
+    projected = project(conv).messages
+    assert projected[0].text == "inspect" and projected[-1].text == "both inspected"
+    tools = "\n".join(m.text for m in projected if m.adapted)
+    assert "first output" in tools and "second output" in tools
+
+
+def test_claude_explicit_prompt_selects_latest_reply_and_ignores_rewound_branch(tmp_path):
+    from session_bridge.projection import project
+
+    p = profile(tmp_path, "claude")
+    jsonl(
+        tmp_path / ".claude/projects/p/s.jsonl",
+        [
+            _claude_user("a", None, "first"),
+            _claude_assistant("b", "a", "first answer"),
+            _claude_user("old", "b", "rewound question"),
+            _claude_assistant("old-answer", "old", "rewound answer"),
+            _claude_user("new", "b", "edited question"),
+            {"type": "last-prompt", "leafUuid": "new"},
+            _claude_assistant("t1", "new", _tool_use("c1")),
+            _claude_assistant("t2", "t1", _tool_use("c2")),
+            _claude_user("r1", "t1", _tool_result("c1", "one")),
+            _claude_user("r2", "t2", _tool_result("c2", "two")),
+            _claude_assistant("reply", "r2", "final reply"),
+        ],
+    )
+    conv = claude.read(p, claude.discover(p)[0])
+    assert not conv.context_ambiguous
+    texts = [m.text for m in project(conv).messages if not m.adapted]
+    assert texts == ["first", "first answer", "edited question", "final reply"]
+
+
+def test_claude_pointer_on_parallel_result_and_metadata_child_keep_final_reply(tmp_path):
+    from session_bridge.projection import project
+
+    p = profile(tmp_path, "claude")
+    jsonl(
+        tmp_path / ".claude/projects/p/s.jsonl",
+        [
+            _claude_user("a", None, "question"),
+            _claude_assistant("t1", "a", _tool_use("c1")),
+            _claude_assistant("t2", "t1", _tool_use("c2")),
+            _claude_user("r1", "t1", _tool_result("c1", "one")),
+            # The client records the newest record at that moment, here a parallel result.
+            {"type": "last-prompt", "leafUuid": "r1"},
+            _claude_user("r2", "t2", _tool_result("c2", "two")),
+            _claude_assistant("reply", "r2", "final reply"),
+            {"type": "system", "subtype": "turn_duration", "uuid": "timing", "parentUuid": "reply"},
+            {"type": "system", "subtype": "away_summary", "uuid": "away", "parentUuid": "timing"},
+        ],
+    )
+    conv = claude.read(p, claude.discover(p)[0])
+    assert not conv.context_ambiguous
+    assert [m.text for m in project(conv).messages if not m.adapted] == ["question", "final reply"]
+
+
+def test_claude_interrupted_attempt_superseded_by_retry_is_not_a_branch(tmp_path):
+    from session_bridge.projection import project
+
+    p = profile(tmp_path, "claude")
+    jsonl(tmp_path / ".claude/projects/p/parent.jsonl", [_claude_user("root", None, "start")])
+    jsonl(
+        tmp_path / ".claude/projects/p/parent/subagents/agent-x.jsonl",
+        [
+            _claude_user("q", None, "task", isSidechain=True),
+            _claude_assistant(
+                "try", "q", [{"type": "server_tool_use", "id": "s1", "name": "advisor"}], isSidechain=True
+            ),
+            _claude_user(
+                "stop", "try", [{"type": "text", "text": "[Request interrupted by user]"}], isSidechain=True
+            ),
+            _claude_assistant("retry", "q", "finished", isSidechain=True),
+        ],
+    )
+    conv = claude.read(p, next(r for r in claude.discover(p) if r.parent_id))
+    assert not conv.context_ambiguous
+    assert [m.text for m in project(conv).messages] == ["task", "finished"]
+    # A competing real answer from the same point still requires an explicit choice.
+    jsonl(
+        tmp_path / ".claude/projects/p/parent/subagents/agent-x.jsonl",
+        [
+            _claude_user("q", None, "task", isSidechain=True),
+            _claude_assistant("a1", "q", "first answer", isSidechain=True),
+            _claude_assistant("a2", "q", "second answer", isSidechain=True),
+        ],
+    )
+    assert claude.read(p, next(r for r in claude.discover(p) if r.parent_id)).context_ambiguous
+
+
+def test_claude_three_parallel_calls_continue_from_any_result(tmp_path):
+    from session_bridge.projection import project
+
+    p = profile(tmp_path, "claude")
+    jsonl(tmp_path / ".claude/projects/p/parent.jsonl", [_claude_user("root", None, "start")])
+
+    def call(uuid, parent, call_id):
+        record = _claude_assistant(uuid, parent, _tool_use(call_id), isSidechain=True)
+        record["message"]["id"] = "msg_turn"
+        return record
+
+    # The turn continues from whichever result was written last, not from the last tool_use.
+    jsonl(
+        tmp_path / ".claude/projects/p/parent/subagents/agent-x.jsonl",
+        [
+            _claude_user("q", None, "inspect three files", isSidechain=True),
+            call("t1", "q", "c1"),
+            call("t2", "t1", "c2"),
+            call("t3", "t2", "c3"),
+            _claude_user("r1", "t1", _tool_result("c1", "alpha"), isSidechain=True),
+            _claude_user("r3", "t3", _tool_result("c3", "gamma"), isSidechain=True),
+            _claude_user("r2", "t2", _tool_result("c2", "beta"), isSidechain=True),
+            _claude_assistant("done", "r2", "three inspected", isSidechain=True),
+        ],
+    )
+    conv = claude.read(p, next(r for r in claude.discover(p) if r.parent_id))
+    assert not conv.context_ambiguous
+    projected = project(conv).messages
+    tools = "\n".join(m.text for m in projected if m.adapted)
+    assert all(word in tools for word in ("alpha", "beta", "gamma", "c1", "c2", "c3"))
+    assert projected[-1].text == "three inspected"
+
+
+def test_claude_turn_companions_of_parallel_results_are_sent(tmp_path):
+    from session_bridge.projection import project
+
+    p = profile(tmp_path, "claude")
+
+    def call(uuid, parent, call_id):
+        record = _claude_assistant(uuid, parent, _tool_use(call_id))
+        record["message"]["id"] = "msg_turn"
+        return record
+
+    # The client writes a note beside each image result; the turn continues from the last one only.
+    jsonl(
+        tmp_path / ".claude/projects/p/s.jsonl",
+        [
+            _claude_user("q", None, "read both screenshots"),
+            call("t1", "q", "c1"),
+            call("t2", "t1", "c2"),
+            _claude_user("r1", "t1", _tool_result("c1", "image one")),
+            _claude_user("n1", "r1", "[Image: scaled by 2.04]", isMeta=True, turnCompanion=True),
+            _claude_user("r2", "t2", _tool_result("c2", "image two")),
+            _claude_user("n2", "r2", "[Image: scaled by 1.68]", isMeta=True, turnCompanion=True),
+            _claude_assistant("done", "n2", "both read"),
+            {"type": "last-prompt", "leafUuid": "done"},
+        ],
+    )
+    conv = claude.read(p, claude.discover(p)[0])
+    assert not conv.context_ambiguous
+    texts = [m.text for m in project(conv).messages]
+    assert "[Image: scaled by 2.04]" in texts and "[Image: scaled by 1.68]" in texts
+    assert texts[-1] == "both read"
+
+
+def test_claude_lone_result_of_a_split_response_is_the_live_tip(tmp_path):
+    p = profile(tmp_path, "claude")
+
+    def block(uuid, parent, content):
+        record = _claude_assistant(uuid, parent, content)
+        record["message"]["id"] = "msg_turn"
+        return record
+
+    # One response written as a text record and its tool_use child; its only result is the newest
+    # record, so an older reply beside it is a competing branch, not a superseded one.
+    jsonl(
+        tmp_path / ".claude/projects/p/s.jsonl",
+        [
+            _claude_user("q", None, "do it"),
+            {"type": "last-prompt", "leafUuid": "q"},
+            _claude_assistant("old", "q", "an older reply"),
+            block("th", "q", "working on it"),
+            block("t1", "th", _tool_use("c1")),
+            _claude_user("r1", "t1", _tool_result("c1", "output")),
+        ],
+    )
+    conv = claude.read(p, claude.discover(p)[0])
+    assert conv.context_ambiguous
+
+
+def test_claude_subagent_compaction_continues_the_pre_compaction_tip(tmp_path):
+    from session_bridge.projection import project
+
+    p = profile(tmp_path, "claude")
+    jsonl(tmp_path / ".claude/projects/p/parent.jsonl", [_claude_user("root", None, "start")])
+    # An auto-compaction starts a new root that names the old tip only as its logical parent.
+    jsonl(
+        tmp_path / ".claude/projects/p/parent/subagents/agent-x.jsonl",
+        [
+            _claude_user("q", None, "research", isSidechain=True),
+            _claude_assistant("t1", "q", _tool_use("c1"), isSidechain=True),
+            _claude_user("r1", "t1", _tool_result("c1", "found"), isSidechain=True),
+            {
+                "type": "system",
+                "subtype": "compact_boundary",
+                "uuid": "cb",
+                "parentUuid": None,
+                "logicalParentUuid": "r1",
+                "isSidechain": True,
+            },
+            _claude_user("s", "cb", "summary of the research", isCompactSummary=True, isSidechain=True),
+            _claude_assistant("fin", "s", "final report", isSidechain=True),
+        ],
+    )
+    conv = claude.read(p, next(r for r in claude.discover(p) if r.parent_id))
+    assert not conv.context_ambiguous
+    texts = [m.text for m in project(conv, context="current").messages]
+    assert texts == ["summary of the research", "final report"]
+
+
+def test_claude_pointer_before_auto_compaction_reaches_the_reply_after_it(tmp_path):
+    from session_bridge.projection import project
+
+    p = profile(tmp_path, "claude")
+    jsonl(
+        tmp_path / ".claude/projects/p/s.jsonl",
+        [
+            _claude_user("q", None, "long task"),
+            {"type": "last-prompt", "leafUuid": "q"},
+            _claude_assistant("a", "q", "working"),
+            {
+                "type": "system",
+                "subtype": "compact_boundary",
+                "uuid": "cb",
+                "parentUuid": None,
+                "logicalParentUuid": "a",
+            },
+            _claude_user("s", "cb", "summary so far", isCompactSummary=True),
+            _claude_assistant("after", "s", "post-compaction reply"),
+            _claude_user("later", "after", "continue"),
+            _claude_assistant("end", "later", "finished"),
+        ],
+    )
+    conv = claude.read(p, claude.discover(p)[0])
+    assert not conv.context_ambiguous
+    texts = [m.text for m in project(conv, context="current").messages]
+    assert texts == ["summary so far", "post-compaction reply", "continue", "finished"]
+
+
+def test_claude_queued_prompt_typed_again_later_is_kept(tmp_path):
+    from session_bridge.projection import project
+
+    p = profile(tmp_path, "claude")
+    jsonl(
+        tmp_path / ".claude/projects/p/s.jsonl",
+        [
+            _claude_user("a", None, "start"),
+            _claude_assistant("t", "a", _tool_use("c1")),
+            {
+                "type": "attachment",
+                "uuid": "q",
+                "parentUuid": "t",
+                "attachment": {"type": "queued_command", "prompt": "continue", "origin": {"kind": "human"}},
+            },
+            _claude_user("r", "q", _tool_result("c1", "out")),
+            _claude_assistant("d", "r", "step done"),
+            _claude_user("u", "d", "continue"),
+            _claude_assistant("e", "u", "all done"),
+        ],
+    )
+    texts = [m.text for m in project(claude.read(p, claude.discover(p)[0])).messages if not m.adapted]
+    assert texts == ["start", "continue", "step done", "continue", "all done"]
+
+
+def test_claude_api_error_beside_retry_is_not_a_branch(tmp_path):
+    p = profile(tmp_path, "claude")
+    jsonl(
+        tmp_path / ".claude/projects/p/s.jsonl",
+        [
+            _claude_user("q", None, "do it"),
+            _claude_assistant("err", "q", "API Error: overloaded", isApiErrorMessage=True),
+            _claude_assistant("ok", "q", "done"),
+        ],
+    )
+    conv = claude.read(p, claude.discover(p)[0])
+    assert not conv.context_ambiguous
+    assert [e.text for e in conv.events if e.active and e.kind == "message"] == ["do it", "done"]
+
+
+def test_claude_repeated_prompt_queued_later_is_kept(tmp_path):
+    from session_bridge.projection import project
+
+    p = profile(tmp_path, "claude")
+    jsonl(
+        tmp_path / ".claude/projects/p/s.jsonl",
+        [
+            _claude_user("a", None, "continue"),
+            _claude_assistant("b", "a", "did step 1"),
+            _claude_user("c", "b", "next"),
+            _claude_assistant("t", "c", _tool_use("c1")),
+            {
+                "type": "attachment",
+                "uuid": "q",
+                "parentUuid": "t",
+                "attachment": {"type": "queued_command", "prompt": "continue", "origin": {"kind": "human"}},
+            },
+            _claude_user("r", "q", _tool_result("c1", "out")),
+            _claude_assistant("d", "r", "done"),
+        ],
+    )
+    texts = [m.text for m in project(claude.read(p, claude.discover(p)[0])).messages if not m.adapted]
+    assert texts == ["continue", "did step 1", "next", "continue", "done"]
+
+
+def test_claude_and_opencode_malformed_fields_do_not_crash(tmp_path):
+    p = profile(tmp_path, "claude")
+    jsonl(
+        tmp_path / ".claude/projects/p/s.jsonl",
+        [
+            _claude_user("a", None, "hi"),
+            {
+                "type": "attachment",
+                "uuid": "q",
+                "parentUuid": "a",
+                "attachment": {"type": "queued_command", "prompt": "later", "origin": "human"},
+            },
+        ],
+    )
+    claude.read(p, claude.discover(p)[0])
+    c, _path = oc_db(tmp_path)
+    c.execute("insert into session values(?,?,?,?,?,?,?,?)", ("s", "t", "/repo", None, 1, 2, None, None))
+    c.execute(
+        "insert into message values(?,?,?,?,?)", ("m", "s", 1, 1, json.dumps({"role": "user", "skills": 3}))
+    )
+    c.commit()
+    c.close()
+    p = profile(tmp_path, "opencode")
+    opencode.read(p, opencode.discover(p)[0])
+
+
+def test_claude_api_errors_dropped_and_queued_messages_kept_once(tmp_path):
+    from session_bridge.projection import project
+
+    p = profile(tmp_path, "claude")
+
+    def queued(uuid, parent, prompt, kind):
+        return {
+            "type": "attachment",
+            "uuid": uuid,
+            "parentUuid": parent,
+            "attachment": {"type": "queued_command", "prompt": prompt, "origin": {"kind": kind}},
+        }
+
+    jsonl(
+        tmp_path / ".claude/projects/p/s.jsonl",
+        [
+            _claude_user("a", None, "start"),
+            _claude_assistant("err", "a", "You've hit your limit", isApiErrorMessage=True),
+            _claude_user("b", "err", "retry"),
+            _claude_assistant("t1", "b", _tool_use("c1")),
+            queued("q1", "t1", "also check the docs", "human"),
+            queued("q2", "q1", "subagent report", "peer"),
+            _claude_user("r1", "q2", _tool_result("c1", "done")),
+            queued("q3", "r1", "go on", "human"),
+            # The client may also record the delivered prompt as a regular user message after it.
+            _claude_user("u", "q3", "go on"),
+            _claude_assistant("reply", "u", "all set"),
+            {"type": "last-prompt", "leafUuid": "b"},
+        ],
+    )
+    conv = claude.read(p, claude.discover(p)[0])
+    projected = project(conv).messages
+    plain = [(m.role, m.text) for m in projected if not m.adapted]
+    assert ("assistant", "You've hit your limit") not in plain
+    assert ("user", "also check the docs") in plain
+    assert [m.text for m in projected].count("retry") == 1
+    assert [m.text for m in projected].count("go on") == 1
+    peer = [m for m in projected if "subagent report" in m.text]
+    assert len(peer) == 1 and peer[0].role == "user"
+    assert peer[0].text.startswith("[Delivered to the session while it was working; origin: peer]")
+    assert plain[-1] == ("assistant", "all set")
 
 
 def test_claude_leaf_marker_followed_by_unique_descendant(tmp_path):

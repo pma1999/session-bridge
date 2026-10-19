@@ -12,6 +12,123 @@ def _root(profile):
     return root(profile, "projects", (".claude",))
 
 
+def _blocks(record):
+    content = (
+        (record.get("message") or {}).get("content") if isinstance(record.get("message"), dict) else None
+    )
+    return content if isinstance(content, list) else []
+
+
+def _tool_result_of(record, parent):
+    """Whether a user record holds only results of the tool_use blocks in its assistant parent."""
+    blocks = _blocks(record)
+    if record.get("type") != "user" or not blocks or not parent or parent.get("type") != "assistant":
+        return False
+    uses = {
+        block.get("id")
+        for block in _blocks(parent)
+        if isinstance(block, dict) and block.get("type") == "tool_use"
+    }
+    return all(
+        isinstance(block, dict) and block.get("type") == "tool_result" and block.get("tool_use_id") in uses
+        for block in blocks
+    )
+
+
+class _Graph:
+    """Claude records one API response as several assistant records sharing message.id, each
+    tool_use chained after the previous one. Each result hangs off its own tool_use, and the turn
+    continues from whichever result was written last, so the other results are parallel leaves."""
+
+    def __init__(self, nodes, children, continued):
+        self.nodes, self.children, self.continued = nodes, children, continued
+        self.turns = {}
+        for key, record in nodes.items():
+            message = record.get("message") if isinstance(record.get("message"), dict) else {}
+            if record.get("type") == "assistant" and message.get("id"):
+                self.turns.setdefault(message["id"], set()).add(key)
+
+    def turn(self, key):
+        message = self.nodes[key].get("message") if isinstance(self.nodes[key].get("message"), dict) else {}
+        return self.turns.get(message.get("id"), {key})
+
+    def response(self, key):
+        """The turn, or for records without a message id, the chain of assistant records around it."""
+        turn = self.turn(key)
+        if len(turn) > 1:
+            return turn
+        found, pending = set(), [key]
+        while pending:
+            current = pending.pop()
+            if current in found or self.nodes.get(current, {}).get("type") != "assistant":
+                continue
+            found.add(current)
+            pending.append(self.nodes[current].get("parentUuid"))
+            pending.extend(self.children.get(current, []))
+        return found or {key}
+
+    def parallel_result(self, key):
+        record = self.nodes[key]
+        parent = self.nodes.get(record.get("parentUuid"))
+        if key in self.continued or not _tool_result_of(record, parent):
+            return False
+        # Another call of the same response has its own result; a record that only continues the
+        # response (its next text or tool_use block) does not make this result a parallel one.
+        for member in self.response(parent["uuid"]):
+            for child in self.children.get(member, []):
+                if child != key and _tool_result_of(self.nodes[child], self.nodes[member]):
+                    return True
+        return False
+
+
+INTERRUPTIONS = {"[Request interrupted by user]", "[Request interrupted by user for tool use]"}
+
+
+def _interruption(record):
+    content = (
+        (record.get("message") or {}).get("content") if isinstance(record.get("message"), dict) else None
+    )
+    blocks = [{"type": "text", "text": content}] if isinstance(content, str) else _blocks(record)
+    return (
+        record.get("type") == "user"
+        and bool(blocks)
+        and all(
+            isinstance(b, dict) and b.get("type") == "text" and b.get("text") in INTERRUPTIONS for b in blocks
+        )
+    )
+
+
+def _descendants(start, children):
+    found, pending = set(), [start]
+    while pending:
+        key = pending.pop()
+        if key not in found:
+            found.add(key)
+            pending.extend(children.get(key, []))
+    return found
+
+
+QUEUED_HEADER = "[Delivered to the session while it was working; origin: {}]\n"
+
+
+def _queued_prompt(record):
+    """Text of a prompt queued during a turn, which the client delivers to the model as input."""
+    attachment = record.get("attachment") if record.get("type") == "attachment" else None
+    if not isinstance(attachment, dict) or attachment.get("type") != "queued_command":
+        return None
+    prompt = attachment.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip():
+        return None
+    origin = attachment.get("origin")
+    origin = (
+        (origin.get("kind") if isinstance(origin, dict) else origin)
+        or attachment.get("commandMode")
+        or "client"
+    )
+    origin = origin if isinstance(origin, str) else "client"
+    return prompt if origin == "human" else QUEUED_HEADER.format(origin) + prompt
+
+
 def _ref(profile, path):
     # Discovery scans records but emits only explicit metadata, never a prompt-derived title.
     meta = {}
@@ -69,26 +186,73 @@ def read(profile, ref, *, snapshot=False):
     records, issues = capture(path, snapshot=snapshot)
     warnings += issues
     nodes = {r["uuid"]: r for r in records if isinstance(r.get("uuid"), str)}
-    parent_ids = {r.get("parentUuid") for r in nodes.values() if r.get("parentUuid")}
-    leaves = [
-        key
-        for key, r in nodes.items()
-        if key not in parent_ids and (subagent_context or not r.get("isSidechain"))
-    ]
-    explicit = [r["leafUuid"] for r in records if isinstance(r.get("leafUuid"), str)]
-    selected = explicit[-1] if explicit else (leaves[0] if len(leaves) == 1 else None)
-    ambiguous = (bool(nodes) and selected is None) or bool(issues)
     children = {}
     for key, record in nodes.items():
         if subagent_context or not record.get("isSidechain"):
-            children.setdefault(record.get("parentUuid"), []).append(key)
-    visited = set()
-    while selected and children.get(selected):
-        if selected in visited or len(children[selected]) != 1:
-            ambiguous = True
-            break
-        visited.add(selected)
-        selected = children[selected][0]
+            # A compaction boundary starts a new root that continues its logical parent's tip.
+            parent = record.get("parentUuid")
+            if parent is None and record.get("logicalParentUuid") in nodes:
+                parent = record["logicalParentUuid"]
+            children.setdefault(parent, []).append(key)
+    conversational = {
+        key
+        for key, record in nodes.items()
+        if record.get("type") in ("user", "assistant") and (subagent_context or not record.get("isSidechain"))
+    }
+
+    # Timing, hook and summary records may follow a reply; only conversation descendants continue it.
+    # A compaction boundary starts a new root and names the tip it continues as its logical parent.
+    def upward(key):
+        record = nodes[key]
+        if record.get("parentUuid") is None and record.get("logicalParentUuid") in nodes:
+            return record["logicalParentUuid"]
+        return record.get("parentUuid")
+
+    continued = set()
+    for key in conversational:
+        current = upward(key)
+        while current in nodes and current not in continued:
+            continued.add(current)
+            current = upward(current)
+    graph = _Graph(nodes, children, continued)
+    order = {key: index for index, key in enumerate(nodes)}
+    leaves = [key for key in nodes if key in conversational and key not in continued]
+    # A turn companion (such as an image scaling note) rides beside its record and never forks the turn.
+    # Client failure notices are never sent to the model, so a retry beside one does not fork the turn.
+    candidates = [
+        key
+        for key in leaves
+        if not graph.parallel_result(key)
+        and not nodes[key].get("turnCompanion")
+        and not nodes[key].get("isApiErrorMessage")
+    ]
+    # An interrupted request that the client retried from an earlier point is a superseded attempt.
+    candidates = [
+        key
+        for position, key in enumerate(candidates)
+        if not (_interruption(nodes[key]) and position < len(candidates) - 1)
+    ]
+    explicit = [
+        r["leafUuid"] for r in records if isinstance(r.get("leafUuid"), str) and r["leafUuid"] in nodes
+    ]
+    ambiguous = bool(issues)
+    if explicit:
+        # The pointer names the newest record when it was written. Its descendants hold the rest of
+        # the turn; a parallel result sits beside the continuation, so anchor at the turn's start.
+        anchor = explicit[-1]
+        if graph.parallel_result(anchor):
+            anchor = min(graph.turn(nodes[anchor]["parentUuid"]), key=order.get)
+        scope = _descendants(anchor, children)
+        within = [key for key in candidates if key in scope]
+        ambiguous |= len(within) > 1
+        pending = [key for key in leaves if key in scope]
+        selected = within[-1] if within else (pending[-1] if pending else explicit[-1])
+    else:
+        ambiguous |= bool(nodes) and len(candidates) > 1
+        # A turn cut off while its parallel results arrived has no continuation yet; its newest
+        # result still reaches every call through the turn's records.
+        selected = candidates[-1] if candidates else (leaves[-1] if leaves else None)
+        ambiguous |= bool(nodes) and selected is None
     active = set()
     current = selected
     while current:
@@ -111,7 +275,23 @@ def read(profile, ref, *, snapshot=False):
             break
         active.add(current)
         current = nodes[current].get("parentUuid")
-    events, groups = [], {}
+    # Every record of an active response belongs to the context, and so does each tool result that
+    # hangs off one of them beside the continuing chain, with the companion notes of those results.
+    for key in [key for key in active if nodes.get(key, {}).get("type") == "assistant"]:
+        active |= graph.turn(key)
+    active |= {
+        key
+        for key, record in nodes.items()
+        if key in conversational
+        and record.get("parentUuid") in active
+        and _tool_result_of(record, nodes.get(record.get("parentUuid")))
+    }
+    active |= {
+        key
+        for key, record in nodes.items()
+        if key in conversational and record.get("turnCompanion") and record.get("parentUuid") in active
+    }
+    events, groups, queued = [], {}, []
     for i, record in enumerate(records):
         kind = record.get("type")
         message = record.get("message") or {}
@@ -126,6 +306,12 @@ def read(profile, ref, *, snapshot=False):
             else ("message" if kind in ("user", "assistant") else "tool" if kind == "tool" else "metadata")
         )
         content = message.get("content", record.get("summary", record.get("content", "")))
+        if record.get("isApiErrorMessage"):
+            # Client-generated failure notices are shown to the user but never sent to the model.
+            event_kind = "metadata"
+        prompt = _queued_prompt(record)
+        if prompt is not None:
+            role, event_kind, content = "user", "message", prompt
         key = str(record.get("uuid", "record-" + str(i)))
         emitted = block_events(
             key,
@@ -141,6 +327,22 @@ def read(profile, ref, *, snapshot=False):
         )
         events.extend(emitted)
         groups[key] = emitted
+        if prompt is not None:
+            queued.append((len(events), emitted, record["attachment"]["prompt"].strip()))
+    # A queued prompt the client also recorded later as a regular user message is already in the
+    # context; the same words typed earlier in the conversation are a separate prompt.
+    for position, emitted, prompt in queued:
+        # Only the user message recorded right after it, before the model answers, can be the same delivery.
+        following = None
+        for event in events[position:]:
+            if not event.active or event.kind not in ("message", "summary"):
+                continue
+            if event.role == "assistant" or event.native.get("type") == "user":
+                following = event
+                break
+        if following is not None and following.role == "user" and following.text.strip() == prompt:
+            for event in emitted:
+                event.kind, event.active = "metadata", False
     # Explicit compact summaries are retained alongside the selected suffix; unsupported layouts refuse projection.
     for i, event in enumerate(events):
         if event.active and event.kind == "summary":

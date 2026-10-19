@@ -81,7 +81,7 @@ def read(profile, ref, *, snapshot=False):
     warnings = guard(ref, snapshot)
     path = scoped(ref.locator or _root(profile) / "opencode.db", _root(profile))
     raw, messages, part_map, session = [], {}, {}, None
-    related = {}
+    related, shared = {}, set()
     with database(path) as con:
         for table in _tables(con):
             row = con.execute("SELECT * FROM " + table + " WHERE id=?", (ref.native_id,)).fetchone()
@@ -124,13 +124,25 @@ def read(profile, ref, *, snapshot=False):
                 value = dict(row)
                 raw.append({"table": "session_message", "row": value})
                 data = object_json(value["data"], warnings)
+                if value["id"] in messages:
+                    shared.add(value["id"])
                 messages[value["id"]] = (value["seq"], value, data, "v2")
     ordered = sorted(messages.items(), key=lambda pair: (pair[1][0], pair[0]))
     mixed = len({v[3] for _, v in ordered}) > 1
     # IDs are monotonic OpenCode identifiers; mixed generation ordering cannot be inferred from seq vs millis.
     if mixed:
         ordered.sort(key=lambda pair: pair[0])
-    ambiguous = mixed
+    # OpenCode mirrors legacy rows into v2 under the same IDs; without shared IDs the two are unrelated.
+    ambiguous = mixed and not shared
+    # v2 keeps a compaction's summary on the compaction row; the legacy answer to it is the same text.
+    compacted = {
+        key
+        for key, (_, row, data, generation) in ordered
+        if generation == "v2"
+        and row.get("type") == "compaction"
+        and data.get("status") == "completed"
+        and text(data.get("summary", ""))
+    }
     revert = object_json(session.get("revert"), warnings)
     boundary = revert.get("messageID", revert.get("messageId"))
     if boundary and boundary not in messages:
@@ -144,6 +156,17 @@ def read(profile, ref, *, snapshot=False):
         role = kind if kind in ("user", "assistant", "system") else "unknown"
         parts = part_map.get(key, []) if generation == "legacy" else []
         content = data.get("content", data.get("text", "")) if generation == "v2" else [d for _, d in parts]
+        skills = data.get("skills") if isinstance(data.get("skills"), list) else []
+        skills = [
+            s.get("text")
+            for s in skills
+            if isinstance(s, dict) and isinstance(s.get("text"), str) and s["text"]
+        ]
+        if generation == "v2" and kind == "user" and skills:
+            # OpenCode sends each invoked skill's body to the model ahead of the prompt that named it.
+            content = [{"type": "text", "text": body} for body in skills] + [
+                {"type": "text", "text": text(content)}
+            ]
         event_kind = "message" if kind in ("user", "assistant", "synthetic", "system") else "metadata"
         if kind == "synthetic":
             role = "user"
@@ -172,7 +195,12 @@ def read(profile, ref, *, snapshot=False):
             if not reverted:
                 for earlier in events:
                     earlier.active = False
-        if generation == "legacy" and data.get("summary") is True:
+        mirrored = (
+            generation == "legacy" and data.get("summary") is True and data.get("parentID") in compacted
+        )
+        if mirrored:
+            event_kind = "metadata"
+        elif generation == "legacy" and data.get("summary") is True:
             event_kind = "summary"
             if not reverted:
                 for earlier in events:
@@ -183,7 +211,7 @@ def read(profile, ref, *, snapshot=False):
                 content,
                 role=role,
                 kind=event_kind,
-                active=not reverted,
+                active=not reverted and not mirrored,
                 native={"row": row, "data": data},
                 source_format="opencode",
                 parent_id=data.get("parentID"),

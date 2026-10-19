@@ -15,6 +15,8 @@ This file records notable user-facing changes. Version numbers refer to the proj
 - Native conversions on Windows now target the plain working directory instead of a `\\?\` path, so Claude Code finds the converted session in its project folder.
 - Codex `verified_answer` records (answers to the model's questions) no longer make the context ambiguous; the current context again starts at the last compaction instead of forcing the full history.
 - Enabled native writes for Claude Code 2.1.304 on Windows x64 after it passed the four isolated native gates; 2.1.302 is no longer the enabled version.
+- Claude Code sessions now resolve the active branch the way Claude Code does when it resumes. Parallel tool results, interrupted attempts that were retried, metadata records and image notes beside tool results no longer cause a false ambiguity or drop the final reply. API error notices are left out. Prompts, task notifications and subagent reports delivered mid-turn are kept once.
+- OpenCode sessions stored in both the legacy and v2 tables are read as one conversation instead of being marked ambiguous. A compaction appears once, with its retained recent conversation, and the current context starts there.
 
 ## 0.3.1
 
