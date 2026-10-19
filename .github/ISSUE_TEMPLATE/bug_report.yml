@@ -1,0 +1,40 @@
+name: Bug report
+description: Report a reproducible problem using synthetic or redacted data.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For vulnerabilities, use the private reporting link in SECURITY.md.
+        Do not upload real transcripts, .sbridge archives, databases, tokens or credentials.
+  - type: input
+    id: version
+    attributes:
+      label: Session Bridge version
+      placeholder: '0.3.1'
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python and client versions, source/destination profiles (redact paths).
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps and minimal synthetic example
+      description: Include the command and a small invented example that reproduces the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostic
+    attributes:
+      label: Redacted error code or diagnostic
+      description: Remove private titles, message text, paths and identifiers before sharing.

@@ -1,0 +1,121 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  quality:
+    name: Quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: |
+            requirements.lock
+            requirements-dev.lock
+      - run: python -m pip install -r requirements-dev.lock
+      - run: python -m pip install --no-deps -e .
+      - run: python -m pip check
+      - run: python -m ruff check src tests scripts
+      - run: python -m compileall -q src scripts
+  tests:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.11', '3.12', '3.13', '3.14']
+    env:
+      SESSIONBRIDGE_HOME: ${{ runner.temp }}/sessionbridge-test-state
+      CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude-test-state
+      CODEX_HOME: ${{ runner.temp }}/codex-test-state
+      XDG_DATA_HOME: ${{ runner.temp }}/xdg-test-state
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.lock
+            requirements-dev.lock
+      - run: python -m pip install -r requirements-dev.lock
+      - run: python -m pip install --no-deps -e .
+      - run: python -m pytest -q -p no:cacheprovider
+      - run: sessionbridge --help
+      - run: sessionbridge --json sync run --once
+  package:
+    name: Package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r requirements.lock
+      - run: python -m pip install --no-deps -e .
+      - run: python scripts/build_portable.py
+      - run: python scripts/verify_release.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: session-bridge-release-candidate
+          path: |
+            dist/session-bridge-*-portable.zip
+            dist/session-bridge-*-portable.zip.sha256
+            dist/session_bridge-*-py3-none-any.whl
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+  windows-install:
+    name: Windows PowerShell installation
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Fresh install and running-worker upgrade
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:SESSIONBRIDGE_HOME = Join-Path $env:RUNNER_TEMP 'sessionbridge-install-state'
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'sessionbridge-install-appdata'
+          $commands = Join-Path $env:RUNNER_TEMP 'sessionbridge-install-bin'
+          $python = (Get-Command python).Source
+          ./scripts/install.ps1 -Python $python -CommandDirectory $commands
+          $command = Join-Path $commands 'sessionbridge.exe'
+          try {
+            $before = & $command --json sync start | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0 -or -not $before.data.healthy) { throw 'Worker did not start.' }
+            ./scripts/install.ps1 -Python $python -CommandDirectory $commands
+            $after = & $command --json sync worker-status | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0 -or -not $after.data.healthy) { throw 'Worker did not restart.' }
+            if ($before.data.generation -eq $after.data.generation) { throw 'Old code generation survived.' }
+          }
+          finally {
+            & $command --json sync stop
+          }

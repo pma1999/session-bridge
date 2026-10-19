@@ -1,0 +1,20 @@
+name: Feature request
+description: Describe a use case or compatibility improvement.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior and alternatives
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Relevant clients and platforms
+      description: Include exact versions and whether local mock testing is feasible.

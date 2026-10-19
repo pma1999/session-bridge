@@ -1,0 +1,18 @@
+# Runtime dependencies tested on Windows Python 3.13 and Linux Python 3.11+.
+# Exact versions; portable installers obtain the appropriate platform wheels.
+annotated-doc==0.0.5
+annotated-types==0.8.0
+colorama==0.4.6
+markdown-it-py==4.2.0
+mdurl==0.1.2
+prompt_toolkit==3.0.53
+pydantic==2.14.1
+pydantic_core==2.50.1
+Pygments==2.21.0
+rich==14.3.4
+shellingham==1.5.4
+typer==0.27.3
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+wcwidth==0.9.2
+zstandard==0.25.0
