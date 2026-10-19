@@ -632,6 +632,51 @@ def test_codex_retained_context_unknown_and_managed_attachment(tmp_path):
     assert conv.attachments[0].path == str(asset.resolve())
 
 
+def test_codex_verified_answer_annotation_keeps_current_context_from_last_compaction(tmp_path):
+    from session_bridge.projection import project
+    from session_bridge.sync_capture import checkpoint
+
+    p = profile(tmp_path, "codex")
+
+    def message(role, text):
+        return {"type": "response_item", "payload": {"type": "message", "role": role, "content": text}}
+
+    answer = {
+        "type": "retained_context",
+        "payload": {
+            "type": "verified_answer",
+            "turn_id": "t2",
+            "call_id": "c1",
+            "questions": [{"question": "Which?", "answer": "This one"}],
+            "acceptance_order": 1,
+        },
+    }
+    jsonl(
+        tmp_path / "sessions/rollout-x.jsonl",
+        [
+            {"type": "session_meta", "payload": {"id": "x"}},
+            {"type": "event_msg", "payload": {"type": "task_started"}},
+            message("user", "before compaction"),
+            {"type": "event_msg", "payload": {"type": "task_complete"}},
+            {
+                "type": "compacted",
+                "payload": {"message": "", "replacement_history": [message("user", "kept")["payload"]]},
+            },
+            {"type": "event_msg", "payload": {"type": "task_started"}},
+            message("user", "after"),
+            answer,
+            message("assistant", "answered"),
+            {"type": "event_msg", "payload": {"type": "task_complete"}},
+        ],
+    )
+    conv = codex.read(p, codex.discover(p)[0])
+    assert not conv.context_ambiguous
+    expected = ["kept", "after", "answered"]
+    assert [m.text for m in project(conv).messages] == expected
+    assert [m.text for m in project(checkpoint(conv).conversation).messages] == expected
+    assert any(r.get("type") == "retained_context" for r in conv.raw_records)
+
+
 def test_partial_record_refuses_current_context(tmp_path):
     from session_bridge.projection import project
 

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from .errors import BridgeError
 from .models import Conversation, digest
 from .projection import project
+from .readers.codex import is_retained_annotation
 
 
 @dataclass
@@ -86,7 +87,11 @@ def _codex_boundary(conversation):
                 started = index
         # A persisted replacement context is itself a completed context checkpoint when
         # it was written outside an unfinished turn. Its raw ancestor data stays archival.
-        if record.get("type") in {"compacted", "retained_context"} and started <= completed:
+        if (
+            record.get("type") in {"compacted", "retained_context"}
+            and not is_retained_annotation(record)
+            and started <= completed
+        ):
             completed = index
     boundary = -1
     for index, event in enumerate(conversation.events):

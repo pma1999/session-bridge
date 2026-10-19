@@ -125,6 +125,19 @@ def discover(profile):
     return sorted(found.values(), key=lambda r: r.updated_at or r.created_at or "", reverse=True)
 
 
+RETAINED_ANNOTATIONS = {"verified_answer"}
+
+
+def is_retained_annotation(record):
+    """A retained_context record that annotates the turn instead of replacing the model context."""
+    payload = record.get("payload")
+    return (
+        record.get("type") == "retained_context"
+        and isinstance(payload, dict)
+        and payload.get("type") in RETAINED_ANNOTATIONS
+    )
+
+
 def _event(item, key, *, active=True, native=None, ordinal=None):
     kind = item.get("type")
     role = item.get(
@@ -286,6 +299,9 @@ def read(profile, ref, *, snapshot=False):
                 response_counts[identity] -= 1
                 event.active = False
                 event.kind = "metadata"
+        elif is_retained_annotation(record):
+            # Annotations persist answers already present in the tool output; they replace nothing.
+            event = Event(id="rollout-" + str(i), kind="metadata", active=False, native=record)
         elif record_kind in ("compacted", "retained_context"):
             replacement = item.get("replacement_history", item.get("items", item.get("history")))
             event = _event(
