@@ -27,6 +27,7 @@ from .models import (
 )
 from .profiles import data_home, defaults, validate_profile
 from .projection import project
+from .readers.common import native_path
 from .store import Store
 
 
@@ -216,7 +217,8 @@ class Bridge:
         if not directory:
             raise BridgeError("cwd_required", "Indica la carpeta de trabajo del destino con --cwd.")
         if profile.environment != "wsl":
-            path = Path(directory).expanduser()
+            # Codex records \\?\ paths; native clients key project folders by the plain form.
+            path = Path(native_path(directory)).expanduser()
             if not path.is_absolute() or not path.is_dir():
                 raise BridgeError(
                     "cwd_missing",

@@ -10,6 +10,9 @@ This file records notable user-facing changes. Version numbers refer to the proj
 - Applied the same directory scope to linked conversations and added a visible scope switch, cancellation and empty-scope guidance.
 - Fixed Codex sessions recorded with Windows extended-length (`\\?\`) paths being refused with `source_path_invalid`; out-of-profile paths remain refused.
 - Fixed conversion and sync of Codex sessions with subagents failing with `source_not_found` when a subagent's history lives only in its rollout file.
+- Stopped Codex retained-context items from each embedding a full copy of their compaction record, which made large sessions grow quadratically and exceed package limits.
+- Raised the package member limit to 1 GiB, the package total to 2 GiB and the sync capture limit to 1 GiB for very large sessions; import ratio and entry checks are unchanged.
+- Native conversions on Windows now target the plain working directory instead of a `\\?\` path, so Claude Code finds the converted session in its project folder.
 
 ## 0.3.1
 

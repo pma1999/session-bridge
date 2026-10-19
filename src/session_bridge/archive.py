@@ -17,8 +17,8 @@ from .errors import BridgeError
 from .models import Attachment, Conversation, canonical, digest, file_digest
 
 MAX_ENTRIES = 4096
-MAX_MEMBER = 256 * 1024 * 1024
-MAX_TOTAL = 512 * 1024 * 1024
+MAX_MEMBER = 1024 * 1024 * 1024
+MAX_TOTAL = 2 * 1024 * 1024 * 1024
 MAX_RATIO = 5000
 
 

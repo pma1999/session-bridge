@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from session_bridge.errors import BridgeError
-from session_bridge.models import Event, SessionRef
+from session_bridge.models import Event, SessionRef, digest
 
 from .common import (
     attachments_in,
@@ -299,10 +299,23 @@ def read(profile, ref, *, snapshot=False):
                 for previous in events:
                     previous.active = False
                 if isinstance(replacement, list):
+                    # Reference the replacement record once per item; copying it would grow
+                    # quadratically with its size, and raw_records already preserves it verbatim.
+                    source_record = digest(record)
                     for j, replacement_item in enumerate(replacement):
                         if isinstance(replacement_item, dict):
+                            native_item = {
+                                "type": record_kind,
+                                "ordinal": ordinal,
+                                "source_record": source_record,
+                                "item": replacement_item,
+                            }
                             events.append(
-                                _event(replacement_item, "retained-" + str(i) + "-" + str(j), native=record)
+                                _event(
+                                    replacement_item,
+                                    "retained-" + str(i) + "-" + str(j),
+                                    native=native_item,
+                                )
                             )
                     event.active = False
                 elif not event.text:

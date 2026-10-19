@@ -385,6 +385,51 @@ def test_codex_reads_extended_length_rollout_and_attachment_paths(tmp_path):
         assert err.value.code == "source_path_invalid"
 
 
+def test_codex_retained_items_reference_compaction_once_and_stay_checkpointable(tmp_path):
+    from session_bridge.models import canonical, digest
+    from session_bridge.projection import project
+    from session_bridge.sync_capture import checkpoint
+
+    p = profile(tmp_path, "codex")
+    items = [
+        {
+            "type": "message",
+            "role": "user" if n % 2 == 0 else "assistant",
+            "content": f"kept {n} " + "x" * 4096,
+        }
+        for n in range(60)
+    ]
+    compacted = {"type": "compacted", "payload": {"message": "", "replacement_history": items}}
+    path = tmp_path / "sessions/rollout-x.jsonl"
+    jsonl(
+        path,
+        [
+            {"type": "session_meta", "payload": {"id": "x"}},
+            {"type": "event_msg", "payload": {"type": "task_started"}},
+            {"type": "response_item", "payload": {"type": "message", "role": "user", "content": "old"}},
+            {"type": "event_msg", "payload": {"type": "task_complete"}},
+            compacted,
+        ],
+    )
+    (ref,) = codex.discover(p)
+    conv = codex.read(p, ref)
+    retained = [e for e in conv.events if e.id.startswith("retained-")]
+    record = next(r for r in conv.raw_records if r.get("type") == "compacted")
+    assert len(retained) == 60
+    assert {e.native["source_record"] for e in retained} == {digest(record)}
+    # Each item carries itself plus a reference, never another copy of the whole record.
+    assert sum(len(canonical(e.native)) for e in retained) < 2 * len(canonical(record))
+    closed = checkpoint(conv)
+    assert [m.text for m in project(closed.conversation).messages] == [i["content"] for i in items]
+    # Captures stored before the reference existed embed the whole record and still checkpoint.
+    legacy = conv.model_copy(deep=True)
+    for event in legacy.events:
+        if event.id.startswith("retained-"):
+            event.native = record
+    closed = checkpoint(legacy)
+    assert [m.text for m in project(closed.conversation).messages] == [i["content"] for i in items]
+
+
 def test_opencode_reads_uncheckpointed_wal_without_writing(tmp_path):
     c, path = oc_db(tmp_path)
     c.execute("pragma journal_mode=wal")

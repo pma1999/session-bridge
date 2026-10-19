@@ -92,7 +92,8 @@ def _codex_boundary(conversation):
     for index, event in enumerate(conversation.events):
         if not event.active:
             continue
-        position = positions.get(digest(event.native))
+        # Retained replacement items reference their source record instead of copying it.
+        position = positions.get(event.native.get("source_record") or digest(event.native))
         row = event.native.get("row") or {}
         if (position is not None and position <= completed) or (
             not positions and row.get("turn_id") in completed_turns

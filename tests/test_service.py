@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -130,6 +131,20 @@ def test_unknown_after_timeout_does_not_blindly_retry(app):
     with pytest.raises(BridgeError) as exc:
         b.convert(ref.key, target.id)
     assert exc.value.code == "recovery_required"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows extended-length paths")
+def test_native_target_cwd_drops_extended_length_prefix(app):
+    b, ref, target, c, writer = app
+    plain = c.source.cwd
+    c.source.cwd = "\\\\?\\" + plain
+    written = []
+    write = writer.write
+    writer.write = lambda req: written.append(req.cwd) or write(req)
+    transfer = b.convert(ref.key, target.id)
+    # Native clients key their project folders by the plain path they are launched from.
+    assert written == [str(Path(plain).resolve())]
+    assert transfer.state == "completed"
 
 
 def test_dry_run_does_not_create_transfer_files_or_start_native_client(app):
