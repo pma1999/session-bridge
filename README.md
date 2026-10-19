@@ -62,7 +62,7 @@ Native writes are enabled only when storage, visible history, cold resume, and m
 
 | Platform | Client version | Native writes |
 | --- | --- | --- |
-| Windows x64 | Claude Code 2.1.302 | Enabled |
+| Windows x64 | Claude Code 2.1.304 | Enabled |
 | Windows x64 | OpenCode 2.0.29 | Enabled; maximum 9,362 messages |
 | Windows x64 | Codex CLI 0.159.0 | Enabled; maximum 128 MiB per rollout |
 | Linux/WSL | Any | Not enabled; explicit handoff is available |

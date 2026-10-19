@@ -15,7 +15,7 @@ from .common import check_version, detect_version, executable, validate_id
 
 VERSIONS = {"claude": claude.VERSION, "opencode": opencode.VERSION, "codex": codex.VERSION}
 # Requires observed persistence, presentation, exact resume and model-visible context.
-VERIFIED: dict[str, str] = {"claude": "2.1.302", "opencode": "2.0.29", "codex": "0.159.0"}
+VERIFIED: dict[str, str] = {"claude": "2.1.304", "opencode": "2.0.29", "codex": "0.159.0"}
 EVIDENCE = "docs/native-compatibility.md"
 
 

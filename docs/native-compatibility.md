@@ -12,7 +12,7 @@ Handoff is available only when explicitly selected by the caller.
 
 | Destination | Version investigated | Native gate | Current evidence |
 | --- | --- | --- | --- |
-| Claude Code, Windows x64 | 2.1.302 | Enabled | All four gates passed, including Unicode native TUI history and cold continuation to a local mock. |
+| Claude Code, Windows x64 | 2.1.304 | Enabled | All four gates passed: the probe recorded persistence, cold resume and continuation to a local mock; Unicode native TUI history was confirmed by inspection. 2.1.302 passed the same gates and is no longer the enabled version. |
 | OpenCode, Windows x64 | 2.0.29 | Enabled, maximum 9,362 messages | All four gates passed, including native mini TUI and exact cold export. |
 | Codex CLI, Windows x64 | 0.159.0 | Enabled, maximum 128 MiB rollout | All four gates passed with native legacy UI events and response items, including the native TUI. |
 | Linux/WSL destination | Any | Disabled | Native writing has not been verified on this platform. Readers and helper are exercised; explicit handoff is available. |

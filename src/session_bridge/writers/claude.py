@@ -14,7 +14,7 @@ from session_bridge.models import NativeReceipt, digest, utc_now
 
 from .common import validate_id
 
-VERSION = "2.1.302"
+VERSION = "2.1.304"
 
 
 def transcript(request):

@@ -14,6 +14,7 @@ This file records notable user-facing changes. Version numbers refer to the proj
 - Raised the package member limit to 1 GiB, the package total to 2 GiB and the sync capture limit to 1 GiB for very large sessions; import ratio and entry checks are unchanged.
 - Native conversions on Windows now target the plain working directory instead of a `\\?\` path, so Claude Code finds the converted session in its project folder.
 - Codex `verified_answer` records (answers to the model's questions) no longer make the context ambiguous; the current context again starts at the last compaction instead of forcing the full history.
+- Enabled native writes for Claude Code 2.1.304 on Windows x64 after it passed the four isolated native gates; 2.1.302 is no longer the enabled version.
 
 ## 0.3.1
 
