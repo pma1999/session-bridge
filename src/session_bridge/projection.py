@@ -1,17 +1,24 @@
 """Select the context to send without changing the preservation archive."""
 
+from . import history
 from .errors import BridgeError
 from .models import Conversation, Fidelity, ProjectedMessage, Projection
 
 
-def project(conversation: Conversation, *, context="current", context_from=None) -> Projection:
+def project(conversation: Conversation, *, context="current", context_from=None, variant=None) -> Projection:
     if context not in {"current", "all"}:
         raise BridgeError("invalid_context", "El contexto debe ser current o all.")
+    # The chosen version first; the full history is then that version's lineage, never the others.
+    conversation = history.select(conversation, variant)
     if conversation.context_ambiguous and context == "current" and not context_from:
         raise BridgeError(
             "ambiguous_context", "El contexto es ambiguo; elige --context-from o --context all."
         )
-    selected = list(conversation.events) if context == "all" else [e for e in conversation.events if e.active]
+    lineage = history.lineage(conversation)
+    if context == "all":
+        selected = [e for e, kept in zip(conversation.events, lineage, strict=True) if kept]
+    else:
+        selected = [e for e in conversation.events if e.active]
     start = 0
     if context_from:
         matches = [i for i, e in enumerate(conversation.events) if e.id == context_from]
@@ -22,6 +29,10 @@ def project(conversation: Conversation, *, context="current", context_from=None)
         # Explicit selection can disambiguate a native branch, but still does not revive other branches.
         selected = conversation.events[matches[0] :]
         selected = [e for e in selected if e.active or e is selected[0]]
+        if not lineage[matches[0]]:
+            raise BridgeError(
+                "unknown_context_point", "Ese punto pertenece a otra variante de la conversación."
+            )
     elif context == "current":
         summaries = [i for i, e in enumerate(selected) if e.kind == "summary"]
         if summaries:

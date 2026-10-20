@@ -192,8 +192,9 @@ def test_home_without_conversations_explains_what_to_check(monkeypatch, capsys):
 class ConvertBridge:
     data_dir = "unused-in-test"
 
-    def __init__(self, ref, *, ambiguous=False, native=True, missing_cwd=False):
+    def __init__(self, ref, *, ambiguous=False, native=True, missing_cwd=False, variants=()):
         self.ref, self.ambiguous, self.native, self.missing_cwd = ref, ambiguous, native, missing_cwd
+        self.variants = list(variants)
         self.previews, self.converts = [], []
 
     def show(self, key, snapshot=False):
@@ -210,6 +211,9 @@ class ConvertBridge:
             "native_available": native,
             "capability": {"reason": "Versión no verificada"},
             "fidelity": {},
+            "variant": options.get("variant"),
+            "variants": self.variants,
+            "subagents": 0,
         }
 
     def convert(self, key, target, **options):
@@ -266,7 +270,14 @@ def test_conversion_asks_only_destination_and_confirmation_then_offers_to_open(m
     assert bridge.converts == [
         (
             "codex-win",
-            {"cwd": None, "context": "current", "context_from": None, "snapshot": False, "mode": "native"},
+            {
+                "cwd": None,
+                "context": "current",
+                "context_from": None,
+                "snapshot": False,
+                "mode": "native",
+                "variant": None,
+            },
         )
     ]
     assert opened == ["tr_test"]
@@ -282,6 +293,69 @@ def test_conversion_can_switch_to_the_full_history_from_the_summary(monkeypatch)
     interactive._convert(bridge, ref, PROFILES)
     assert [options["context"] for options in bridge.previews] == ["current", "all"]
     assert bridge.converts[0][1]["context"] == "all"
+
+
+EDITED = [
+    {
+        "id": "v_current0001",
+        "current": True,
+        "prompt": "…as a list please",
+        "reply": "",
+        "updated_at": None,
+        "messages": 2,
+    },
+    {
+        "id": "v_earlier0002",
+        "current": False,
+        "prompt": "…as a table please",
+        "reply": "",
+        "updated_at": None,
+        "messages": 2,
+    },
+]
+
+
+def test_edited_conversation_takes_the_current_version_and_offers_the_others(monkeypatch, capsys):
+    ref = session("a", "Mi tarea", "C:/project")
+    bridge = ConvertBridge(ref, variants=EDITED)
+    asked = _answers(monkeypatch, "codex-win", "convert", "done")
+    interactive._convert(bridge, ref, PROFILES)
+    assert "Elegir otra variante (2)" in asked[1][1]
+    assert "Convertir y mantenerla sincronizada (solo su historial)" in asked[1][1]
+    assert bridge.converts[0][1]["variant"] is None
+    assert "La actual (de 2) · «…as a list please»" in capsys.readouterr().out
+
+
+def test_choosing_another_version_converts_it_without_offering_sync(monkeypatch, capsys):
+    ref = session("a", "Mi tarea", "C:/project")
+    bridge = ConvertBridge(ref, variants=EDITED)
+    asked = _answers(monkeypatch, "codex-win", "variant", "v_earlier0002", "convert", "done")
+    interactive._convert(bridge, ref, PROFILES)
+    labels = asked[2][1]
+    assert labels[0] == "La actual · 2 mensajes · «…as a list please»"
+    assert labels[1] == "Otra variante · 2 mensajes · «…as a table please»" and labels[-1] == "Volver"
+    # With another version chosen, the summary says so and sync is not offered.
+    assert not any("sincronizada" in label for label in asked[3][1])
+    assert bridge.converts[0][1]["variant"] == "v_earlier0002"
+    out = capsys.readouterr().out
+    assert "Otra variante (de 2) · «…as a table please»" in out
+    assert "La sincronización sigue siempre la variante actual de Claude Code." in out
+
+
+def test_going_back_from_the_version_list_keeps_the_choice(monkeypatch):
+    ref = session("a", "Mi tarea", "C:/project")
+    bridge = ConvertBridge(ref, variants=EDITED)
+    _answers(monkeypatch, "codex-win", "variant", interactive.BACK, "convert", "done")
+    interactive._convert(bridge, ref, PROFILES)
+    assert bridge.converts[0][1]["variant"] is None
+
+
+def test_conversation_without_versions_offers_no_version_choice(monkeypatch):
+    ref = session("a", "Mi tarea", "C:/project")
+    bridge = ConvertBridge(ref)
+    asked = _answers(monkeypatch, "codex-win", "convert", "done")
+    interactive._convert(bridge, ref, PROFILES)
+    assert not any("variante" in label for label in asked[1][1])
 
 
 def test_missing_folder_and_unsupported_version_lead_to_an_explicit_manual_handoff(monkeypatch, capsys):

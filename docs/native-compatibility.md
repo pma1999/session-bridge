@@ -150,6 +150,41 @@ The installed generated schema matches official source tag rust-v0.159.0, commit
 `app-server/src/external_agent_migration/session_importer.rs`. Native runtime observations,
 not the source's unit tests alone, establish the enabled gate.
 
+## Edited messages and subagents
+
+Editing an earlier message and sending it leaves more than one version of a conversation on disk.
+Session Bridge reads each version without writing to the source. It takes the one the client would
+resume by default and keeps the others selectable (`show` lists them; `convert` and `import` take
+`--variant`; the interactive summary offers them). "Full history" (`--context all`) is the
+lineage of the chosen version, including what was compacted, and never the other versions offered,
+subagent steps or duplicated UI history.
+
+| Client | How an edit is recorded | Versions offered |
+| --- | --- | --- |
+| Claude Code 2.1.304 | A new branch in the same JSONL from the edited prompt (`parentUuid`); `last-prompt.leafUuid` names the current tip. | Every branch that starts at a prompt you typed, including one edited before any answer. Without a pointer the newest tip is the default. A second answer to the same prompt is still an ambiguity that needs an explicit choice. |
+| Codex CLI 0.159.0 | `thread/revert` writes a new rollout segment whose `history_base` keeps the records before the edited turn; the old rollout stays intact. Older rollouts can contain `thread_rolled_back` events instead. | Each earlier rollout of the thread, from where the new one takes over. Legacy rollbacks drop the newest user turns as Codex replays them, and the dropped turns are a version. A rollback that crosses a compaction is ambiguous. |
+| OpenCode 2.0.29 | `/undo` stages `session.revert` with a message ID; sending a new message deletes the undone messages. | While the undo is staged, the undone messages are a version; the default honours the undo. After a new message there is nothing left to offer. |
+
+A version branching before a Claude Code partial compaction, when the messages replayed after that
+compaction belong to it, is not offered (`source_variant_order_unsupported`), and neither is one whose
+records do not hold together (`source_variant_unreadable`); the default is unaffected. A version
+that is not offered stays in the full history, as in 0.5.0.
+
+Subagents reach the destination the way the parent's model saw them: the request it delegated and
+the result it got back. Their own steps stay in the archive (`related_conversations`).
+
+| Client | What the parent context holds | Where the steps are |
+| --- | --- | --- |
+| Claude Code | The `Agent`/`Task` call with its prompt and the tool result, or a task notification for a background agent | `<session>/subagents/*.jsonl`, or inline `isSidechain` records in older files |
+| Codex | `spawn_agent` and the messages the agents exchange | Separate threads linked by `thread_spawn_edges` |
+| OpenCode | The `subagent`/`task` tool call with its prompt and result, or the synthetic `<subagent …>` message | Child sessions with `parent_id` |
+
+Evidence: real local sessions of each client were read with the previous and the new reader. The
+current context was identical in all of them (225 Claude Code, 1,129 Codex and 1,116 OpenCode
+sessions). Two Claude Code edits and one Codex revert were checked by hand. The staged OpenCode undo
+and the legacy Codex rollback had no local example; they are covered by fixtures built from the
+clients' 0.159.0 / 2.0.29 sources.
+
 ## Undo boundary
 
 Native delete APIs can cascade into child sessions. Current native undo always

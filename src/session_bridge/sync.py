@@ -8,6 +8,7 @@ from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 from pathlib import Path
 
+from . import history
 from .archive import write_package
 from .catalog import same_directory
 from .errors import BridgeError
@@ -136,6 +137,12 @@ class SyncService:
     def link(self, key: str, *, name=None, transfer_id=None):
         if name is not None and (not name.strip() or len(name) > 120 or any(ord(c) < 32 for c in name)):
             raise BridgeError("sync_name_invalid", "El nombre necesita entre 1 y 120 caracteres visibles.")
+        if transfer_id and self.bridge.store.get(transfer_id).context_policy.get("variant"):
+            # Before anything is saved: the link would follow a version the source no longer continues.
+            raise BridgeError(
+                "sync_variant_unsupported",
+                "La sincronización sigue la variante actual del origen; esta conversión usó otra.",
+            )
         with self._operation():
             conversation = self._source(key)
             profile = self._profile(conversation.source.profile_id)
@@ -526,6 +533,8 @@ class SyncService:
             for message in context
         ]
         conversation.context_ambiguous = False
+        # The canonical context replaces the native one, so its versions no longer apply.
+        history.strip(conversation)
         conversation.source.title = link["name"]
         conversation.source_fingerprint = digest([conversation.source_fingerprint, revision["id"]])
         return conversation

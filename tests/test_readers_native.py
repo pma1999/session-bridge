@@ -325,6 +325,10 @@ def test_codex_paginated_plus_rollout_no_duplicate_bodies(tmp_path):
     assert [e.text for e in conv.events if e.active and e.kind == "message"] == ["hello", "answer"]
     assert len(conv.raw_records) >= 8
     assert not conv.context_ambiguous
+    from session_bridge.projection import project
+
+    # The full history is the rollout's; the UI copy of the same turns is not sent twice.
+    assert [m.text for m in project(conv, context="all").messages] == ["hello", "answer"]
 
 
 def test_corrupt_zstd_and_unknown_database_schema(tmp_path):

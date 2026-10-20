@@ -2,6 +2,17 @@
 
 This file records notable user-facing changes. Version numbers refer to the project package.
 
+## 0.6.0
+
+- Edited messages: when you edit an earlier message and send it, the other versions of the conversation are no longer lost or treated as an error. The version the source assistant would resume is taken by default, and you can choose another one. The interactive summary shows which version is taken, and offers "Elegir otra variante". Each version is described by when it was written, how many messages follow and the words that differ from the others. `show` lists the versions, and `convert` and `import` take `--variant`.
+- Claude Code: a conversation with several edited versions and no pointer to the current one is no longer ambiguous; the newest version is taken, as Claude Code does. A second answer to the same prompt still asks for a choice.
+- Codex: an edit made with `thread/revert` keeps the earlier rollout as a version. Older rollouts with `thread_rolled_back` events now leave the dropped turns out of the context, as Codex does. Before, those turns were sent to the destination.
+- OpenCode: while an undo is staged (no new message sent yet), what it undid can be chosen as a version, and the full history no longer carries it.
+- "Llevar el historial completo" (`--context all`) is now the full history of the chosen version, including what was compacted. Before, it also carried the other versions, inline subagent steps of older Claude Code files and Codex's duplicated UI history.
+- The summary says how many subagents the conversation used: their request and result travel with it, and their steps stay in the archive. This was already the behaviour in all three assistants; it is now covered by tests for each.
+- Synchronization follows the version the source resumes. Converting another version cannot be kept synchronized, and `--sync` and `sync link` say so.
+- Versions are recorded inside the existing session metadata, so archives and synchronized captures stay readable by 0.5.0, and older archives behave as before.
+
 ## 0.5.0
 
 - A synchronized conversation now has one current session per assistant: the one Session Bridge opened or created for it last. Switching assistants reopens that session when it is already up to date, including the original session you started in, instead of creating another copy. Before, going back to an assistant always created a new session, even when nothing had changed.

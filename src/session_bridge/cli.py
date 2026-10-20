@@ -208,6 +208,14 @@ def _emit(value: Any, *, body: bool = False, empty: str | None = None, folders: 
         source = value.source
         _console_out.print(f"Origen: {_visible(source.key)}")
         _console_out.print(f"Título: {_visible(source.title.strip())}")
+        from . import history
+
+        variants = history.describe(value)
+        if variants:
+            # Editing an earlier message left other versions; "vigente" below is the current one.
+            _console_out.print(f"Variantes ({len(variants)}); elige otra con --variant:")
+            for info in variants:
+                _console_out.print(f"  {info.id}  {ui.variant_label(info)}")
         for event in value.events:
             _console_out.print(
                 f"[{_visible(event.role)}] ID: {_visible(event.id)} "
@@ -462,6 +470,9 @@ def convert(
     model: str | None = typer.Option(None, help="Modelo con el que abrir el destino."),
     new_copy: bool = typer.Option(False, "--new-copy", help="Crea otra copia aunque ya exista una."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Muestra la vista previa sin escribir nada."),
+    variant: str | None = typer.Option(
+        None, "--variant", help="Variante que llevar si editaste mensajes; por defecto, la actual."
+    ),
     resume_after: bool = typer.Option(
         False, "--resume", help="Reanuda al finalizar; requiere conversión nativa verificada."
     ),
@@ -479,11 +490,16 @@ def convert(
         "snapshot": snapshot,
         "mode": mode,
         "model": model,
+        "variant": variant,
     }
     if dry_run and resume_after:
         raise BridgeError("invalid_options", "--resume no se combina con --dry-run.")
     if (sync_after and mode != "native") or (sync_name and not sync_after):
         raise BridgeError("invalid_options", "--sync requiere modo native; --sync-name requiere --sync.")
+    if sync_after and variant:
+        raise BridgeError(
+            "invalid_options", "--sync sigue la variante actual del origen; no admite --variant."
+        )
     if dry_run:
         _emit(bridge.preview(key, target, **options))
         return
@@ -547,6 +563,9 @@ def import_package(
     model: str | None = typer.Option(None, help="Modelo con el que abrir el destino."),
     new_copy: bool = typer.Option(False, "--new-copy", help="Crea otra copia aunque ya exista una."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Muestra la vista previa sin escribir nada."),
+    variant: str | None = typer.Option(
+        None, "--variant", help="Variante que llevar si editaste mensajes; por defecto, la actual."
+    ),
 ) -> None:
     """Importa un paquete portable en un asistente."""
     bridge = _bridge()
@@ -558,6 +577,7 @@ def import_package(
         "mode": mode,
         "model": model,
         "new_copy": new_copy,
+        "variant": variant,
     }
     if dry_run:
         _emit(bridge.preview_package(package, target, **options))

@@ -1,10 +1,10 @@
 # Verification
 
-This record summarizes the evidence available for the 0.5.0 source state. It describes local checks and observed native-client behavior; it is not a guarantee for other machines, client versions, or external providers.
+This record summarizes the evidence available for the 0.6.0 source state. It describes local checks and observed native-client behavior; it is not a guarantee for other machines, client versions, or external providers.
 
 ## Automated checks
 
-The project test suite passed **373 tests**, with **one skipped** Windows symlink-privilege case. A separate directory-junction safety check was exercised. Ruff and Python compilation also passed. The tests cover archive integrity, native readers and writers, six transfer directions, sync capture and branching, one current session per assistant, recovery, backup and restore, CLI behavior, directory scope, the interactive search and menus driven by real keystrokes, metadata search, and refusal paths. Release tests additionally check license inclusion, current-checkout version selection, private-file exclusion, checksum validation, and rejection of unexpected wheel members or package identities.
+The project test suite passed **397 tests**, with **one skipped** Windows symlink-privilege case. A separate directory-junction safety check was exercised. Ruff and Python compilation also passed. The tests cover archive integrity, native readers and writers, six transfer directions, sync capture and branching, one current session per assistant, edited-message versions and subagent requests in all three assistants, recovery, backup and restore, CLI behavior, directory scope, the interactive search and menus driven by real keystrokes, metadata search, and refusal paths. Release tests additionally check license inclusion, current-checkout version selection, private-file exclusion, checksum validation, and rejection of unexpected wheel members or package identities.
 
 The local run was on Windows x64 with Python 3.13.1. The skipped symlink case reflects unavailable Windows privilege, not a passing symlink test. There is no configured static typecheck. Hosted CI is configured for Windows and Ubuntu with Python 3.11–3.14, package verification, and Windows installation with worker restart. [Per-run results](https://github.com/pma1999/session-bridge/actions/workflows/ci.yml) show which checks actually completed for each commit. Tests of mocked Windows adapters on Ubuntu do not establish native Linux compatibility.
 

@@ -147,3 +147,28 @@ def chosen_head(link: dict) -> dict | None:
 
 def capitalized(text: str) -> str:
     return text[:1].upper() + text[1:]
+
+
+PREVIEW_CHARS = 60
+
+
+def _excerpt(text: str, limit: int = PREVIEW_CHARS) -> str:
+    text = visible(" ".join(text.split()))
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def variant_label(info: Any) -> str:
+    """One line that tells a version of an edited conversation apart from the others.
+
+    What was typed goes last: a narrow terminal cuts it, never when or how long the version is."""
+    parts = ["La actual" if info.current else "Otra variante"]
+    when = relative_time(info.updated_at)
+    if when:
+        parts.append(when)
+    parts.append(f"{info.messages} mensaje" + ("" if info.messages == 1 else "s"))
+    if info.prompt:
+        parts.append("«" + _excerpt(info.prompt) + "»")
+    elif info.reply:
+        # The same words were sent again; what came back is what differs.
+        parts.append("respuesta «" + _excerpt(info.reply) + "»")
+    return " · ".join(parts)

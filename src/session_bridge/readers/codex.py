@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from session_bridge import history as history_index
 from session_bridge.errors import BridgeError
 from session_bridge.models import Event, SessionRef, digest
 
@@ -291,6 +292,205 @@ def _event(item, key, *, active=True, native=None, ordinal=None):
     )
 
 
+SUMMARY_PREFIX = (
+    "Another language model started to solve this problem and produced a summary of its thinking process."
+)
+AGENTS_PREFIX = "# AGENTS.md instructions for "
+
+
+def _contextual(event):
+    """Context Codex injects as a user message, which never counts as a turn of the user's."""
+    stripped = event.text.lstrip()
+    if stripped.startswith(AGENTS_PREFIX):
+        return True
+    tag = re.match(r"<([A-Za-z_][\w-]*)[\s>]", stripped)
+    return bool(tag) and "</" + tag.group(1) + ">" in stripped
+
+
+def _turn_boundary(event):
+    """Codex 0.159 ``is_user_turn_boundary``: a real user message or a message between agents."""
+    native = event.native.get("payload") if isinstance(event.native.get("payload"), dict) else event.native
+    if not isinstance(native, dict):
+        return False
+    if native.get("type") == "agent_message":
+        return True
+    return (
+        native.get("type") == "message"
+        and native.get("role") == "user"
+        and not _contextual(event)
+        and not event.text.startswith(SUMMARY_PREFIX + "\n")
+    )
+
+
+def _build(records, self_path):
+    """Model context of one rollout lineage, with the turns a legacy rollback dropped as versions.
+
+    Returns the events, the record index each one comes from, the versions before each
+    rollback as (key, context, lineage) index sets, and whether the context is ambiguous."""
+    events, origins, versions = [], [], []
+    ambiguous = False
+    response_counts = {}
+    for record in records:
+        if record.get("type") == "response_item":
+            item = record.get("payload") or {}
+            if isinstance(item, dict) and item.get("type") == "message":
+                identity = (item.get("role"), text(item.get("content", "")))
+                response_counts[identity] = response_counts.get(identity, 0) + 1
+    dropped = set()
+    for i, record in enumerate(records):
+        record_kind = record.get("type")
+        item = record.get("payload") or {}
+        if not isinstance(item, dict):
+            item = {}
+        ordinal = record.get("ordinal", i)
+        if record_kind == "event_msg" and item.get("type") == "thread_rolled_back":
+            # Codex drops the newest user turns from the context it rebuilt so far (drop_last_n_user_turns).
+            turns = item.get("num_turns")
+            live = [index for index, event in enumerate(events) if event.active]
+            boundaries = [index for index in live if _turn_boundary(events[index])]
+            if isinstance(turns, int) and turns > 0 and boundaries:
+                cut = boundaries[-turns] if turns < len(boundaries) else boundaries[0]
+                # Context updates recorded just before the dropped turn go with it.
+                earlier = [index for index in live if index < cut]
+                while earlier and (
+                    events[earlier[-1]].role in ("developer", "system") or _contextual(events[earlier[-1]])
+                ):
+                    cut = earlier.pop()
+                if any(
+                    events[index].kind == "summary" or index in dropped for index in live if index >= cut
+                ) or (turns > len(boundaries) and any(event.kind == "summary" for event in events)):
+                    # Codex then replays an older checkpoint; which items survive is not modelled here.
+                    ambiguous = True
+                    events.append(Event(id="rollout-" + str(i), kind="metadata", active=False, native=record))
+                    origins.append(i)
+                    continue
+                before = frozenset(live)
+                versions.append(("rollback:" + str(ordinal), before, frozenset(range(len(events))) - dropped))
+                for index in live:
+                    if index >= cut:
+                        events[index].active = False
+                        dropped.add(index)
+            events.append(Event(id="rollout-" + str(i), kind="metadata", active=False, native=record))
+            origins.append(i)
+            continue
+        # Response items and explicit replacement histories are the model-context source.
+        # Paginated thread_items represent UI history, which may retain pre-compaction messages.
+        active = True
+        if record_kind in ("response_item", "event_msg"):
+            event = _event(item, "rollout-" + str(i), active=active, native=record, ordinal=ordinal)
+            if item.get("type") == "agent_message" and "author" in item:
+                event.role, event.text = _agent_message(item, self_path)
+            identity = (event.role, event.text)
+            if record_kind == "event_msg" and event.kind == "message" and response_counts.get(identity, 0):
+                response_counts[identity] -= 1
+                event.active = False
+                event.kind = "metadata"
+        elif record_kind == "inter_agent_communication" and "author" in item:
+            # Codex hands a message between agents to the model as input (to_model_input_item).
+            event = _event(
+                {"type": "agent_message", **item}, "rollout-" + str(i), native=record, ordinal=ordinal
+            )
+            event.kind = "message"
+            event.role, event.text = _agent_message(item, self_path)
+        elif is_retained_annotation(record):
+            # Annotations persist answers already present in the tool output; they replace nothing.
+            event = Event(id="rollout-" + str(i), kind="metadata", active=False, native=record)
+        elif record_kind in ("compacted", "retained_context"):
+            replacement = item.get("replacement_history", item.get("items", item.get("history")))
+            event = _event(
+                {"type": record_kind, "summary": item.get("message", item.get("summary", ""))},
+                "rollout-" + str(i),
+                active=active,
+                native=record,
+                ordinal=ordinal,
+            )
+            if active:
+                for previous in events:
+                    previous.active = False
+                if isinstance(replacement, list):
+                    # Reference the replacement record once per item; copying it would grow
+                    # quadratically with its size, and raw_records already preserves it verbatim.
+                    source_record = digest(record)
+                    for j, replacement_item in enumerate(replacement):
+                        if isinstance(replacement_item, dict):
+                            native_item = {
+                                "type": record_kind,
+                                "ordinal": ordinal,
+                                "source_record": source_record,
+                                "item": replacement_item,
+                            }
+                            retained = _event(
+                                replacement_item,
+                                "retained-" + str(i) + "-" + str(j),
+                                native=native_item,
+                            )
+                            if (
+                                replacement_item.get("type") == "agent_message"
+                                and "author" in replacement_item
+                            ):
+                                retained.role, retained.text = _agent_message(replacement_item, self_path)
+                            events.append(retained)
+                            origins.append(i)
+                    event.active = False
+                elif not event.text:
+                    ambiguous = True
+        else:
+            event = Event(id="rollout-" + str(i), kind="metadata", active=False, native=record)
+        # Rollout records carry the time; their payloads usually do not.
+        event.timestamp = event.timestamp or timestamp(record.get("timestamp"))
+        events.append(event)
+        origins.append(i)
+    lineage = frozenset(range(len(events))) - dropped
+    return events, origins, versions, lineage, ambiguous
+
+
+def _segments(base, thread):
+    """Every rollout file of ``thread``: its first one and each segment a revert started."""
+    found = []
+    for directory in ("sessions", "archived_sessions"):
+        folder = base / directory
+        if not folder.exists():
+            continue
+        for path in sorted(folder.rglob("rollout-*")):
+            match = ROLLOUT_NAME.search(path.name.split(".jsonl")[0])
+            if match and match["thread"] == thread and path.name.endswith((".jsonl", ".jsonl.zst")):
+                try:
+                    found.append(scoped(path, base))
+                except BridgeError:
+                    continue
+    # A compressed copy and its plain file are the same rollout.
+    plain = {str(path)[: -len(".zst")] if str(path).endswith(".zst") else str(path) for path in found}
+    return sorted(Path(name) if Path(name).exists() else Path(name + ".zst") for name in plain)
+
+
+def _superseded(base, thread, current, records, self_path):
+    """Histories a revert left behind: other rollouts of the thread that are not part of ``records``.
+
+    Codex 0.159 edits an earlier prompt by writing a new rollout whose history base keeps the
+    records before that turn; the old rollout stays on disk with the turns after it."""
+    result = []
+    signatures = [digest(record) for record in records]
+    for path in _segments(base, thread):
+        if current is not None and path.resolve() == current.resolve():
+            continue
+        try:
+            own, issues = capture(path, snapshot=True)
+            chain, lineage_issues, broken = _lineage(base, own)
+        except BridgeError:
+            continue
+        if broken or issues or lineage_issues:
+            continue
+        shared = 0
+        for left, right in zip(signatures, (digest(record) for record in chain), strict=False):
+            if left != right:
+                break
+            shared += 1
+        if shared == len(chain):
+            continue  # Everything it holds is already in the current history.
+        result.append((path, chain, shared))
+    return result
+
+
 def read(profile, ref, *, snapshot=False):
     warnings = guard(ref, snapshot)
     base = _root(profile)
@@ -382,76 +582,54 @@ def read(profile, ref, *, snapshot=False):
     else:
         warnings.append("source_rollout_missing")
     self_path = self_path or "/root"
-    events = []
-    response_counts = {}
-    for record in records:
-        if record.get("type") == "response_item":
-            item = record.get("payload") or {}
-            if isinstance(item, dict) and item.get("type") == "message":
-                identity = (item.get("role"), text(item.get("content", "")))
-                response_counts[identity] = response_counts.get(identity, 0) + 1
-    for i, record in enumerate(records):
-        record_kind = record.get("type")
-        item = record.get("payload") or {}
-        if not isinstance(item, dict):
-            item = {}
-        ordinal = record.get("ordinal", i)
-        # Response items and explicit replacement histories are the model-context source.
-        # Paginated thread_items represent UI history, which may retain pre-compaction messages.
-        active = True
-        if record_kind in ("response_item", "event_msg"):
-            event = _event(item, "rollout-" + str(i), active=active, native=record, ordinal=ordinal)
-            if item.get("type") == "agent_message" and "author" in item:
-                event.role, event.text = _agent_message(item, self_path)
-            identity = (event.role, event.text)
-            if record_kind == "event_msg" and event.kind == "message" and response_counts.get(identity, 0):
-                response_counts[identity] -= 1
-                event.active = False
-                event.kind = "metadata"
-        elif is_retained_annotation(record):
-            # Annotations persist answers already present in the tool output; they replace nothing.
-            event = Event(id="rollout-" + str(i), kind="metadata", active=False, native=record)
-        elif record_kind in ("compacted", "retained_context"):
-            replacement = item.get("replacement_history", item.get("items", item.get("history")))
-            event = _event(
-                {"type": record_kind, "summary": item.get("message", item.get("summary", ""))},
-                "rollout-" + str(i),
-                active=active,
-                native=record,
-                ordinal=ordinal,
+    events, origins, rollbacks, own_lineage, unstable = _build(records, self_path)
+    ambiguous |= unstable
+    if unstable:
+        warnings.append("source_rollback_across_compaction")
+    offset = len(history) if records else 0
+    versions = [
+        history_index.Version(
+            key="current",
+            context=frozenset(offset + i for i, event in enumerate(events) if event.active),
+            lineage=frozenset(offset + i for i in own_lineage),
+        )
+    ]
+    for key, context, lineage in rollbacks:
+        versions.append(
+            history_index.Version(
+                key=key,
+                context=frozenset(offset + i for i in context),
+                lineage=frozenset(offset + i for i in lineage),
             )
-            if active:
-                for previous in events:
-                    previous.active = False
-                if isinstance(replacement, list):
-                    # Reference the replacement record once per item; copying it would grow
-                    # quadratically with its size, and raw_records already preserves it verbatim.
-                    source_record = digest(record)
-                    for j, replacement_item in enumerate(replacement):
-                        if isinstance(replacement_item, dict):
-                            native_item = {
-                                "type": record_kind,
-                                "ordinal": ordinal,
-                                "source_record": source_record,
-                                "item": replacement_item,
-                            }
-                            retained = _event(
-                                replacement_item,
-                                "retained-" + str(i) + "-" + str(j),
-                                native=native_item,
-                            )
-                            if (
-                                replacement_item.get("type") == "agent_message"
-                                and "author" in replacement_item
-                            ):
-                                retained.role, retained.text = _agent_message(replacement_item, self_path)
-                            events.append(retained)
-                    event.active = False
-                elif not event.text:
-                    ambiguous = True
-        else:
-            event = Event(id="rollout-" + str(i), kind="metadata", active=False, native=record)
-        events.append(event)
+        )
+    if records and not unstable:
+        # Earlier versions a prompt edit left in other rollouts of this thread: their shared
+        # records are already here, so only what follows the edit is added, as inactive history.
+        for alternative, chain, shared in _superseded(base, ref.native_id, path, records, self_path):
+            own, own_origins, _, own_lineage_alt, broken = _build(chain, self_path)
+            prefix = sum(1 for origin in own_origins if origin < shared)
+            if broken or [e.id for e in own[:prefix]] != [e.id for e in events[:prefix]]:
+                warnings.append("source_variant_unreadable")
+                continue
+            label = alternative.name.split(".jsonl")[0]
+            start = offset + len(events)
+            for event in own[prefix:]:
+                event.id = label + ":" + event.id
+            tail = own[prefix:]
+            context = {offset + i for i in range(prefix) if own[i].active}
+            context |= {start + j for j, event in enumerate(tail) if event.active}
+            lineage = {offset + i for i in own_lineage_alt if i < prefix}
+            lineage |= {start + j for j in range(len(tail))}
+            for event in tail:
+                event.active = False
+            events.extend(tail)
+            raw.extend(
+                {"table": "discarded_rollout", "segment": label, "row": chain[origin]}
+                for origin in sorted({origin for origin in own_origins if origin >= shared})
+            )
+            versions.append(
+                history_index.Version(key=label, context=frozenset(context), lineage=frozenset(lineage))
+            )
     if history:
         if records:
             for event in history:
@@ -466,7 +644,7 @@ def read(profile, ref, *, snapshot=False):
     if ref.metadata.get("history_mode") == "paginated" and not history and not (history_known and records):
         ambiguous = True
         warnings.append("source_paginated_projection_missing")
-    return finish(
+    conversation = finish(
         ref,
         events,
         raw,
@@ -475,3 +653,7 @@ def read(profile, ref, *, snapshot=False):
         attachments=attachments_in(raw, _root(profile)),
         related=related,
     )
+    if records:
+        # The paginated UI history duplicates the rollout; it belongs to no version's history.
+        history_index.attach(conversation, versions, current="current")
+    return conversation

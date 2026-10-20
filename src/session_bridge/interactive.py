@@ -603,6 +603,22 @@ def _context_label(context: str, context_from: str | None) -> str:
     return "Historial completo" if context == "all" else "Contexto actual (desde la última compactación)"
 
 
+def _variants(preview) -> list[Any]:
+    from .history import VariantInfo
+
+    return [VariantInfo(**item) for item in preview.get("variants") or []]
+
+
+def _pick_variant(variants, chosen) -> Any:
+    """The version to take; None is the one the source would resume."""
+    options = [(None if info.current else info.id, ui.variant_label(info)) for info in variants]
+    answer = _ask(
+        "Editaste mensajes de esta conversación. ¿Qué variante quieres llevar?",
+        options + [(BACK, "Volver")],
+    )
+    return chosen if answer is BACK else answer
+
+
 def _pick_start(conversation) -> str | None:
     speakers = {"user": "Tú", "assistant": "Asistente"}
     choices = [
@@ -641,6 +657,24 @@ def _summary(ref, target, preview, *, context: str, context_from: str | None, mo
     attachments = preview.get("attachments", 0)
     history = f"{_context_label(context, context_from)} · {preview.get('message_count', 0)} mensajes"
     grid.add_row("Historial", history + (f" · {attachments} adjuntos" if attachments else ""))
+    variants = _variants(preview)
+    if variants:
+        chosen = next(
+            (info for info in variants if info.id == preview.get("variant")),
+            next(info for info in variants if info.current),
+        )
+        what = f" · «{ui._excerpt(chosen.prompt)}»" if chosen.prompt else ""
+        grid.add_row(
+            "Variante",
+            (f"La actual (de {len(variants)})" if chosen.current else f"Otra variante (de {len(variants)})")
+            + what,
+        )
+    subagents = preview.get("subagents", 0)
+    if subagents:
+        grid.add_row(
+            "Subagentes",
+            f"{subagents} · se llevan su encargo y su resultado; sus pasos quedan en el archivo",
+        )
     grid.add_row(
         "Formato",
         "Conversación nativa, verificada al terminar"
@@ -679,6 +713,7 @@ def _preview(bridge, ref, conversation, target_profile, state) -> Any:
                     context_from=state["context_from"],
                     snapshot=state["snapshot"],
                     mode=state["mode"],
+                    variant=state["variant"],
                 )
         except BridgeError as exc:
             if exc.code not in {"cwd_missing", "cwd_required"}:
@@ -764,7 +799,14 @@ def _convert(bridge, ref, profiles) -> Any:
         return BACK
     target_profile = next(profile for profile in targets if profile.id == target_id)
     target = ui.profile_label(target_profile, profiles)
-    state = {"cwd": None, "context": "current", "context_from": None, "snapshot": False, "mode": "native"}
+    state = {
+        "cwd": None,
+        "context": "current",
+        "context_from": None,
+        "snapshot": False,
+        "mode": "native",
+        "variant": None,
+    }
     if ref.active is True:
         answer = _ask(
             "La conversación está abierta ahora mismo.",
@@ -806,8 +848,14 @@ def _convert(bridge, ref, profiles) -> Any:
             mode=state["mode"],
         )
         options: list[tuple[Any, str]] = [("convert", "Convertir")]
-        if state["mode"] == "native" and windows.get(ref.profile_id) and windows.get(target_id):
+        variants = _variants(preview)
+        syncable = state["mode"] == "native" and windows.get(ref.profile_id) and windows.get(target_id)
+        if syncable and state["variant"] is None:
             options.append(("sync", "Convertir y mantenerla sincronizada (solo su historial)"))
+        elif syncable:
+            _note(f"La sincronización sigue siempre la variante actual de {ui.tool_name(ref.tool)}.", "dim")
+        if variants and not conversation.context_ambiguous:
+            options.append(("variant", f"Elegir otra variante ({len(variants)})"))
         if not conversation.context_ambiguous:
             options.append(
                 (
@@ -824,6 +872,9 @@ def _convert(bridge, ref, profiles) -> Any:
         if action == "toggle":
             state["context"] = "all" if state["context"] == "current" else "current"
             continue
+        if action == "variant":
+            state["variant"] = _pick_variant(variants, state["variant"])
+            continue
         name = None
         if action == "sync":
             # Settle the name before anything is written, so linking cannot fail after converting.
@@ -831,7 +882,7 @@ def _convert(bridge, ref, profiles) -> Any:
             if name is BACK:
                 continue
         break
-    options = {key: state[key] for key in ("cwd", "context", "context_from", "snapshot", "mode")}
+    options = {key: state[key] for key in ("cwd", "context", "context_from", "snapshot", "mode", "variant")}
     with _status("Convirtiendo y verificando…"):
         transfer = bridge.convert(ref.key, target_id, **options)
     _out().print()

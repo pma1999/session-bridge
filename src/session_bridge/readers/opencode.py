@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from session_bridge import history
 from session_bridge.errors import BridgeError
 from session_bridge.models import SessionRef
 
@@ -147,81 +148,107 @@ def read(profile, ref, *, snapshot=False):
     boundary = revert.get("messageID", revert.get("messageId"))
     if boundary and boundary not in messages:
         ambiguous = True
-    events = []
-    reverted = False
-    for key, (_, row, data, generation) in ordered:
-        if key == boundary:
-            reverted = True
-        kind = row.get("type") if generation == "v2" else data.get("role")
-        role = kind if kind in ("user", "assistant", "system") else "unknown"
-        parts = part_map.get(key, []) if generation == "legacy" else []
-        content = data.get("content", data.get("text", "")) if generation == "v2" else [d for _, d in parts]
-        skills = data.get("skills") if isinstance(data.get("skills"), list) else []
-        skills = [
-            s.get("text")
-            for s in skills
-            if isinstance(s, dict) and isinstance(s.get("text"), str) and s["text"]
-        ]
-        if generation == "v2" and kind == "user" and skills:
-            # OpenCode sends each invoked skill's body to the model ahead of the prompt that named it.
-            content = [{"type": "text", "text": body} for body in skills] + [
-                {"type": "text", "text": text(content)}
-            ]
-        event_kind = "message" if kind in ("user", "assistant", "synthetic", "system") else "metadata"
-        if kind == "synthetic":
-            role = "user"
-        if kind == "shell":
-            event_kind, role = "tool", "tool"
-            output = data.get("output") or {}
-            content = historical_tool_text(
-                "opencode",
-                "shell",
-                call_id=data.get("shellID"),
-                arguments=data.get("command"),
-                result=output.get("output") if isinstance(output, dict) else output,
+
+    def build(boundary, notes):
+        """Events as the model sees them while ``boundary`` (an undo not sent yet) is staged."""
+        nonlocal ambiguous
+        events, cut, reverted = [], None, False
+        for key, (_, row, data, generation) in ordered:
+            if key == boundary:
+                reverted = True
+                cut = len(events)
+            kind = row.get("type") if generation == "v2" else data.get("role")
+            role = kind if kind in ("user", "assistant", "system") else "unknown"
+            parts = part_map.get(key, []) if generation == "legacy" else []
+            content = (
+                data.get("content", data.get("text", "")) if generation == "v2" else [d for _, d in parts]
             )
-        if kind == "compaction" and data.get("status") == "completed":
-            event_kind = "summary"
-            role = "user"
-            content = text(data.get("summary", ""))
-            recent = text(data.get("recent", ""))
-            if recent:
-                content += "\n\n[Retained recent conversation]\n" + recent
-            if data.get("providerContext"):
-                # Provider-specific encrypted checkpoints cannot be replayed across arbitrary models.
-                warnings.append("source_provider_checkpoint_archive_only")
-                if not content:
-                    ambiguous = True
-            if not reverted:
-                for earlier in events:
-                    earlier.active = False
-        mirrored = (
-            generation == "legacy" and data.get("summary") is True and data.get("parentID") in compacted
+            skills = data.get("skills") if isinstance(data.get("skills"), list) else []
+            skills = [
+                s.get("text")
+                for s in skills
+                if isinstance(s, dict) and isinstance(s.get("text"), str) and s["text"]
+            ]
+            if generation == "v2" and kind == "user" and skills:
+                # OpenCode sends each invoked skill's body to the model ahead of the prompt that named it.
+                content = [{"type": "text", "text": body} for body in skills] + [
+                    {"type": "text", "text": text(content)}
+                ]
+            event_kind = "message" if kind in ("user", "assistant", "synthetic", "system") else "metadata"
+            if kind == "synthetic":
+                role = "user"
+            if kind == "shell":
+                event_kind, role = "tool", "tool"
+                output = data.get("output") or {}
+                content = historical_tool_text(
+                    "opencode",
+                    "shell",
+                    call_id=data.get("shellID"),
+                    arguments=data.get("command"),
+                    result=output.get("output") if isinstance(output, dict) else output,
+                )
+            if kind == "compaction" and data.get("status") == "completed":
+                event_kind = "summary"
+                role = "user"
+                content = text(data.get("summary", ""))
+                recent = text(data.get("recent", ""))
+                if recent:
+                    content += "\n\n[Retained recent conversation]\n" + recent
+                if data.get("providerContext"):
+                    # Provider-specific encrypted checkpoints cannot be replayed across arbitrary models.
+                    notes.append("source_provider_checkpoint_archive_only")
+                    if not content:
+                        ambiguous = True
+                if not reverted:
+                    for earlier in events:
+                        earlier.active = False
+            mirrored = (
+                generation == "legacy" and data.get("summary") is True and data.get("parentID") in compacted
+            )
+            if mirrored:
+                event_kind = "metadata"
+            elif generation == "legacy" and data.get("summary") is True:
+                event_kind = "summary"
+                if not reverted:
+                    for earlier in events:
+                        earlier.active = False
+            events.extend(
+                block_events(
+                    key,
+                    content,
+                    role=role,
+                    kind=event_kind,
+                    active=not reverted and not mirrored,
+                    native={"row": row, "data": data},
+                    source_format="opencode",
+                    parent_id=data.get("parentID"),
+                    timestamp=timestamp(row.get("time_created")),
+                )
+            )
+        return events, cut
+
+    events, cut = build(boundary, warnings)
+    versions = [
+        history.Version(
+            key="current",
+            context=frozenset(i for i, event in enumerate(events) if event.active),
+            lineage=frozenset(range(len(events) if cut is None else cut)),
         )
-        if mirrored:
-            event_kind = "metadata"
-        elif generation == "legacy" and data.get("summary") is True:
-            event_kind = "summary"
-            if not reverted:
-                for earlier in events:
-                    earlier.active = False
-        events.extend(
-            block_events(
-                key,
-                content,
-                role=role,
-                kind=event_kind,
-                active=not reverted and not mirrored,
-                native={"row": row, "data": data},
-                source_format="opencode",
-                parent_id=data.get("parentID"),
-                timestamp=timestamp(row.get("time_created")),
+    ]
+    if cut is not None:
+        # OpenCode deletes the undone messages once a new one is sent; until then they can come back.
+        undone, _ = build(None, [])
+        versions.append(
+            history.Version(
+                key="revert:" + str(boundary),
+                context=frozenset(i for i, event in enumerate(undone) if event.active),
+                lineage=frozenset(range(len(undone))),
             )
         )
     if revert.get("partID"):
         ambiguous = True
         warnings.append("source_partial_message_revert")
-    return finish(
+    conversation = finish(
         ref,
         events,
         raw,
@@ -230,3 +257,5 @@ def read(profile, ref, *, snapshot=False):
         attachments=attachments_in(raw, _root(profile)),
         related=list(related.values()),
     )
+    history.attach(conversation, versions, current="current")
+    return conversation

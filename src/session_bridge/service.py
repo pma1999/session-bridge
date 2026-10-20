@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import importlib
 import os
 import re
@@ -9,8 +10,9 @@ import subprocess
 import uuid
 from pathlib import Path, PurePosixPath
 
+from . import history
 from .archive import atomic_write, read_package, write_package
-from .catalog import same_directory, search_matches
+from .catalog import is_subagent, same_directory, search_matches
 from .errors import BridgeError
 from .models import (
     Capability,
@@ -75,6 +77,14 @@ class RemoteWriter:
     def resume_argv(self, profile, native_id, cwd):
         result = self.call("resume_argv", {"native_id": native_id, "cwd": cwd})
         return result
+
+
+def _chosen_variant(conversation, variant):
+    """The resolved version, or None when it is the one the source client would resume."""
+    if variant is None:
+        return None
+    chosen = history.resolve(conversation, variant)
+    return None if chosen == history.original(conversation) else chosen
 
 
 class Bridge:
@@ -208,11 +218,12 @@ class Bridge:
         context_from=None,
         mode="native",
         model=None,
+        variant=None,
     ):
         if mode not in {"native", "handoff"}:
             raise BridgeError("invalid_mode", "El modo debe ser native o handoff.")
         profile = self._profile(target)
-        projection = project(conversation, context=context, context_from=context_from)
+        projection = project(conversation, context=context, context_from=context_from, variant=variant)
         directory = cwd or conversation.source.cwd
         if not directory:
             raise BridgeError("cwd_required", "Indica la carpeta de trabajo del destino con --cwd.")
@@ -254,10 +265,18 @@ class Bridge:
         snapshot=False,
         mode="native",
         model=None,
+        variant=None,
     ) -> dict:
         c = self.show(key, snapshot=snapshot)
         return self._preview(
-            c, target, cwd=cwd, context=context, context_from=context_from, mode=mode, model=model
+            c,
+            target,
+            cwd=cwd,
+            context=context,
+            context_from=context_from,
+            mode=mode,
+            model=model,
+            variant=variant,
         )
 
     def preview_package(self, package: Path, target: str, **options) -> dict:
@@ -266,10 +285,26 @@ class Bridge:
         return self._preview(read_package(Path(package)), target, **options)
 
     def _preview(
-        self, c, target, *, cwd=None, context="current", context_from=None, mode="native", model=None
+        self,
+        c,
+        target,
+        *,
+        cwd=None,
+        context="current",
+        context_from=None,
+        mode="native",
+        model=None,
+        variant=None,
     ):
         p, projection, directory, cap = self._prepare(
-            c, target, cwd=cwd, context=context, context_from=context_from, mode=mode, model=model
+            c,
+            target,
+            cwd=cwd,
+            context=context,
+            context_from=context_from,
+            mode=mode,
+            model=model,
+            variant=variant,
         )
         return {
             "source": c.source.model_dump(mode="json"),
@@ -279,6 +314,9 @@ class Bridge:
             "capability": cap.model_dump(mode="json"),
             "context": context,
             "context_from": context_from,
+            "variant": _chosen_variant(c, variant),
+            "variants": [dataclasses.asdict(info) for info in history.describe(c)],
+            "subagents": sum(1 for ref in c.related if is_subagent(ref)),
             "message_count": len(projection.messages),
             "archived_event_count": len(c.events),
             "attachments": len(c.attachments),
@@ -302,6 +340,7 @@ class Bridge:
         mode="native",
         model=None,
         new_copy=False,
+        variant=None,
     ) -> Transfer:
         return self._convert(
             self.show(key, snapshot=snapshot),
@@ -312,6 +351,7 @@ class Bridge:
             mode=mode,
             model=model,
             new_copy=new_copy,
+            variant=variant,
             capture_related=True,
             snapshot=snapshot,
         )
@@ -330,14 +370,24 @@ class Bridge:
         capture_related=False,
         snapshot=False,
         operation_id=None,
+        variant=None,
     ):
         if operation_id is not None and (
             not isinstance(operation_id, str) or not re.fullmatch(r"tr_[0-9a-f]{32}", operation_id)
         ):
             raise BridgeError("invalid_operation", "El identificador de operación planificada no es válido.")
         p, projection, directory, capability = self._prepare(
-            conversation, target, cwd=cwd, context=context, context_from=context_from, mode=mode, model=model
+            conversation,
+            target,
+            cwd=cwd,
+            context=context,
+            context_from=context_from,
+            mode=mode,
+            model=model,
+            variant=variant,
         )
+        # Only a version other than the one the source would resume is part of the request.
+        variant = _chosen_variant(conversation, variant)
         if mode == "native" and not capability.native:
             raise BridgeError(
                 "native_unavailable",
@@ -359,8 +409,10 @@ class Bridge:
         projection.fidelity.archive_only.extend(
             "conversation:" + c.source.key for c in conversation.related_conversations
         )
+        request = {"variant": variant} if variant else {}
         identity = digest(
             {
+                **request,
                 "capture": capture,
                 "source": conversation.source.key,
                 "target": p.model_dump(),
@@ -403,7 +455,7 @@ class Bridge:
                 target=p,
                 # Allocation is a side-effect-free UUID; journal it before any native write.
                 native_id=self._writer(p).allocate_id(p) if mode == "native" else None,
-                context_policy={"context": context, "context_from": context_from, "model": model},
+                context_policy={"context": context, "context_from": context_from, "model": model, **request},
                 cwd=directory,
                 created_at=utc_now(),
                 updated_at=utc_now(),
@@ -475,6 +527,7 @@ class Bridge:
             conversation,
             context=transfer.context_policy.get("context", "current"),
             context_from=transfer.context_policy.get("context_from"),
+            variant=transfer.context_policy.get("variant"),
         )
         return conversation, projection
 

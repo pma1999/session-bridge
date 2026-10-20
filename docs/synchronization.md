@@ -79,6 +79,12 @@ authority. Unsupported attachments retain the existing fidelity report and archi
 Native settings and permissions apply when you continue. No files, Git checkpoints, subprocesses,
 approvals, credentials or running subagents are synchronized or recreated.
 
+A synchronized conversation follows the version of the source that its client would resume. If
+you edit an earlier message there, the next revision is a rewind or a context replacement, and the
+next open carries the edited history. A conversion made with another version (`--variant`, or
+"Elegir otra variante" in the interactive flow) cannot be kept synchronized: `--sync` cannot be combined with
+`--variant`, and `sync link` refuses such a conversion with `sync_variant_unsupported`.
+
 If a source is missing, malformed, changing while read, has an ambiguous branch, or its registered
 installation changes, its last valid revision is retained and the problem is reported. It is not
 silently replaced with an older or partial context. A native version upgrade still requires fresh

@@ -36,7 +36,7 @@ Before the first transfer, make your own backup of any native client data you ca
 
 Run `sessionbridge` with no command to open one search over every conversation: Claude Code, Codex and OpenCode sessions, and the conversations you keep synchronized (marked ●). Conversations from the directory where you start it come first, under **En esta carpeta**; every other project follows under **En otros proyectos**, so nothing is hidden behind a scope switch. Subagent and helper threads are left out because they belong to their parent conversation.
 
-Type to filter by title, folder, assistant, or ID. Search ignores case and accents and accepts partial words in any order. Use the arrow keys (or Tab) to move, Enter to open, and Esc to go back. Choosing a session asks where to continue it and shows a summary; from there you can convert it, convert it and keep it synchronized, or switch between the current context (from the last compaction) and the full history. A missing working folder or an unsupported target version is explained, with the next step offered. `--all-projects` lists everything by recency without the folder grouping.
+Type to filter by title, folder, assistant, or ID. Search ignores case and accents and accepts partial words in any order. Use the arrow keys (or Tab) to move, Enter to open, and Esc to go back. Choosing a session asks where to continue it and shows a summary; from there you can convert it, convert it and keep it synchronized, or switch between the current context (from the last compaction) and the full history. If you edited an earlier message, the version the source assistant would resume is taken by default and the summary offers the others. A subagent's request and result travel with the conversation; its steps stay in the archive. A missing working folder or an unsupported target version is explained, with the next step offered. `--all-projects` lists everything by recency without the folder grouping.
 
 `list` shows sessions from the current directory by default. Directory matching is exact after path normalization: sibling projects and nested directories are separate scopes. Use `--all-projects` to list every directory. Explicit session IDs remain usable from any directory.
 
@@ -48,6 +48,7 @@ sessionbridge list --all-projects --search "my project"
 sessionbridge list --cwd "C:\Projects\app"
 sessionbridge show claude-win:SESSION_ID
 sessionbridge convert claude-win:SESSION_ID --to opencode-win --dry-run
+sessionbridge convert claude-win:SESSION_ID --to opencode-win --variant v_VERSION_ID
 sessionbridge convert claude-win:SESSION_ID --to opencode-win --resume
 sessionbridge convert claude-win:SESSION_ID --to codex-win --mode handoff
 sessionbridge export codex-win:SESSION_ID --output conversation.sbridge
@@ -69,7 +70,7 @@ Native writes are enabled only when storage, visible history, cold resume, and m
 | Windows x64 | Codex CLI 0.159.0 | Enabled; maximum 128 MiB per rollout |
 | Linux/WSL | Any | Not enabled; explicit handoff is available |
 
-All six cross-client directions among the three listed Windows versions were exercised. Other versions and platforms have not been verified for native writes and are refused by the compatibility gate. See [native compatibility evidence](docs/native-compatibility.md) for the boundaries and [verification record](docs/verification.md) for scope and limits.
+All six cross-client directions among the three listed Windows versions were exercised. How each client records edited messages and subagents, and what Session Bridge takes from them, is described in [edited messages and subagents](docs/native-compatibility.md#edited-messages-and-subagents). Other versions and platforms have not been verified for native writes and are refused by the compatibility gate. See [native compatibility evidence](docs/native-compatibility.md) for the boundaries and [verification record](docs/verification.md) for scope and limits.
 
 ## Optional Windows synchronization
 

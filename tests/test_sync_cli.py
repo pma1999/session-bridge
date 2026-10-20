@@ -161,6 +161,7 @@ def test_convert_sync_dry_run_has_no_link_worker_or_data_write(monkeypatch, tmp_
                 "snapshot": False,
                 "mode": "native",
                 "model": None,
+                "variant": None,
             },
         )
     ]
@@ -183,6 +184,8 @@ def test_convert_refuses_sync_handoff_and_sync_name_without_sync(monkeypatch):
     for args in (
         ["--json", "convert", "codex:thread-1", "--to", "claude-win", "--mode", "handoff", "--sync"],
         ["--json", "convert", "codex:thread-1", "--to", "claude-win", "--sync-name", "Daily"],
+        # Sync follows the version the source resumes, so another one cannot be linked.
+        ["--json", "convert", "codex:thread-1", "--to", "claude-win", "--sync", "--variant", "v_1"],
     ):
         result = CliRunner().invoke(cli.app, args)
         assert isinstance(result.exception, BridgeError)
