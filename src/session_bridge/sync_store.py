@@ -26,6 +26,10 @@ class SyncStore:
     MAX_RELATED_DEPTH = 32
     REFERENCE_CHUNK = 256
 
+    SCHEMA_OBJECTS = frozenset(
+        {"links", "links_name_ci", "revisions", "revisions_link", "captures", "contexts", "blobs"}
+    )
+
     def __init__(self, root: Path):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -39,6 +43,10 @@ class SyncStore:
                     raise BridgeError(
                         "sync_store_version", "El almacén pertenece a una versión más reciente."
                     )
+                present = {row[0] for row in db.execute("SELECT name FROM sqlite_master")}
+                if version == self.SCHEMA_VERSION and self.SCHEMA_OBJECTS <= present:
+                    # Already current: opening needs no write, so a busy worker cannot block it.
+                    return
                 db.executescript(
                     """
                     CREATE TABLE IF NOT EXISTS links(

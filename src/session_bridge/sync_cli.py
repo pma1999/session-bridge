@@ -7,7 +7,7 @@ from pathlib import Path
 
 import typer
 
-sync_app = typer.Typer(no_args_is_help=True, help="Sincroniza conversaciones locales vinculadas.")
+sync_app = typer.Typer(no_args_is_help=True, help="Mantiene conversaciones sincronizadas entre asistentes.")
 
 
 def _service():
@@ -16,10 +16,16 @@ def _service():
     return SyncService()
 
 
-def _emit(value) -> None:
+NO_LINKS = (
+    "No hay conversaciones sincronizadas. Ejecuta sessionbridge, elige una conversación "
+    "y «Convertir y mantenerla sincronizada»."
+)
+
+
+def _emit(value, **options) -> None:
     from .cli import _emit as emit
 
-    emit(value)
+    emit(value, **options)
 
 
 def _daemon():
@@ -56,14 +62,14 @@ def link(
 @sync_app.command("list")
 def list_links() -> None:
     """Muestra los vínculos y su estado."""
-    _emit(_service().list())
+    _emit(_service().list(), empty=NO_LINKS)
 
 
 @sync_app.command("status")
 def link_status(link: str | None = typer.Argument(None, help="Nombre o identificador del vínculo.")) -> None:
     """Consulta un vínculo, o todos si no indicas ninguno."""
     service = _service()
-    _emit(service.status(link) if link is not None else service.list())
+    _emit(service.status(link) if link is not None else service.list(), empty=NO_LINKS)
 
 
 @sync_app.command("check")

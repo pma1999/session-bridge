@@ -26,7 +26,7 @@ sessionbridge --help
 sessionbridge doctor
 ```
 
-The installer creates a project-local virtual environment and installs the `sessionbridge` command in your user command directory. Keep the project folder in place. Close interactive Session Bridge windows before installing or upgrading: Windows can lock their executable. The installer stops and restarts its managed synchronization worker when needed. Python dependencies are pinned; initial installation needs network access. The installer does not install or upgrade coding clients and refuses to replace an unmanaged command.
+The installer creates a project-local virtual environment and installs the `sessionbridge` command in your user command directory. Keep the project folder in place. Close interactive Session Bridge windows before installing or upgrading: Windows can lock their executable. The installer stops and restarts its managed synchronization worker when needed. Python dependencies are pinned; initial installation needs network access. The installer does not install or upgrade coding clients and refuses to replace an unmanaged command. If it reports one after a manual copy or a lost installation record, check that `%USERPROFILE%\.local\bin\sessionbridge.exe` is yours, delete it, and run the installer again.
 
 Each GitHub release includes the portable ZIP, a wheel, and SHA-256 checksum files. Session Bridge is distributed through GitHub Releases; no PyPI release is published.
 
@@ -34,9 +34,11 @@ Before the first transfer, make your own backup of any native client data you ca
 
 ## Quick start
 
-The interactive selector and `list` show sessions from the directory where you start Session Bridge. Directory matching is exact after path normalization: sibling projects and nested directories are separate scopes. Sessions without a known working directory appear only in the global scope. Explicit session IDs remain usable from any directory.
+Run `sessionbridge` with no command to open one search over every conversation: Claude Code, Codex and OpenCode sessions, and the conversations you keep synchronized (marked ●). Conversations from the directory where you start it come first, under **En esta carpeta**; every other project follows under **En otros proyectos**, so nothing is hidden behind a scope switch. Subagent and helper threads are left out because they belong to their parent conversation.
 
-Type part of a title, path, or native ID to search. Search ignores case and accents, accepts partial words and keywords in any order, and replaces the complete search text when accepting a completion. Use Tab and the arrow keys to select; ambiguous matches require a more specific query or an explicit selection. The selector includes **Buscar en todos los proyectos** to change scope, and the equivalent CLI option is `--all-projects`.
+Type to filter by title, folder, assistant, or ID. Search ignores case and accents and accepts partial words in any order. Use the arrow keys (or Tab) to move, Enter to open, and Esc to go back. Choosing a session asks where to continue it and shows a summary; from there you can convert it, convert it and keep it synchronized, or switch between the current context (from the last compaction) and the full history. A missing working folder or an unsupported target version is explained, with the next step offered. `--all-projects` lists everything by recency without the folder grouping.
+
+`list` shows sessions from the current directory by default. Directory matching is exact after path normalization: sibling projects and nested directories are separate scopes. Use `--all-projects` to list every directory. Explicit session IDs remain usable from any directory.
 
 ```text
 sessionbridge

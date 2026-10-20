@@ -2410,3 +2410,43 @@ def test_opencode_shell_history_is_closed_observation(tmp_path):
     projected = project(conv)
     assert len(projected.messages) == 1 and projected.messages[0].adapted
     assert "echo historical" in projected.messages[0].text and "shell result" in projected.messages[0].text
+
+
+def test_codex_discovery_marks_helper_threads_as_subagents(tmp_path):
+    from session_bridge.catalog import is_subagent
+
+    p = profile(tmp_path, "codex")
+    home = tmp_path / ".codex"
+    home.mkdir()
+    c = sqlite3.connect(home / "state_5.sqlite")
+    c.execute("create table threads(id text,rollout_path text,title text,source text,thread_source text)")
+    rows = [
+        ("user", "Plan the release", "cli", "user"),
+        ("guardian", "Guardian review", '{"subagent":{"other":"guardian"}}', "guardian_review"),
+        ("spawned", "Explorer", '{"subagent":{"thread_spawn":{"parent_thread_id":"user"}}}', "subagent"),
+    ]
+    c.executemany("insert into threads values(?,'',?,?,?)", [(i, t, s, ts) for i, t, s, ts in rows])
+    c.commit()
+    c.close()
+    refs = {ref.native_id: ref for ref in codex.discover(p)}
+    assert not is_subagent(refs["user"])
+    assert is_subagent(refs["guardian"]) and is_subagent(refs["spawned"])
+
+
+def test_codex_discovery_recognises_helper_threads_by_source_alone(tmp_path):
+    from session_bridge.catalog import is_subagent
+
+    p = profile(tmp_path, "codex")
+    home = tmp_path / ".codex"
+    home.mkdir()
+    c = sqlite3.connect(home / "state_5.sqlite")
+    # An older schema records the origin only in source.
+    c.execute("create table threads(id text,rollout_path text,title text,source text)")
+    c.execute(
+        "insert into threads values('guardian','','Guardian review','{\"subagent\":{\"other\":\"guardian\"}}')"
+    )
+    c.execute("insert into threads values('user','','Plan','cli')")
+    c.commit()
+    c.close()
+    refs = {ref.native_id: ref for ref in codex.discover(p)}
+    assert is_subagent(refs["guardian"]) and not is_subagent(refs["user"])

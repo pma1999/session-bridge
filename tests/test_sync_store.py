@@ -417,3 +417,27 @@ def test_os_lock_reports_overlap_and_releases_after_exception(tmp_path):
         thread.join(3)
     with store.lock():
         pass
+
+
+def test_opening_a_current_store_does_not_wait_for_a_writer(tmp_path, monkeypatch):
+    import sqlite3
+
+    SyncStore = sync_store_module.SyncStore
+    SyncStore(tmp_path)
+    original = SyncStore.connect
+
+    def impatient(self):
+        db = original(self)
+        db.execute("PRAGMA busy_timeout=200")
+        return db
+
+    monkeypatch.setattr(SyncStore, "connect", impatient)
+    writer = sqlite3.connect(tmp_path / "sync.sqlite3")
+    try:
+        # The background worker holds its write transaction while it captures a turn.
+        writer.execute("BEGIN IMMEDIATE")
+        store = SyncStore(tmp_path)
+        assert store.links() == []
+    finally:
+        writer.rollback()
+        writer.close()

@@ -29,6 +29,14 @@ def search_matches(query: str, value: str) -> bool:
     return search_rank(query, value) is not None
 
 
+def is_subagent(ref) -> bool:
+    """A helper agent that runs inside another conversation; a fork is a conversation of its own."""
+    metadata = getattr(ref, "metadata", {}) or {}
+    if metadata.get("subagent") or metadata.get("spawned"):
+        return True
+    return ref.tool == "opencode" and bool(ref.parent_id)
+
+
 def _directory_key(value: str) -> tuple[str, str] | None:
     if not value:
         return None

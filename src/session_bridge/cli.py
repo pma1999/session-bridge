@@ -14,18 +14,33 @@ from pydantic import ValidationError
 from rich.console import Console
 from rich.table import Table
 
+from . import ui
+from .catalog import is_subagent
 from .errors import BridgeError
 from .models import Profile
 from .sync_cli import sync_app
 
 SCHEMA_VERSION = 1
+EXAMPLES = """Ejemplos:
+
+  sessionbridge                         Busca una conversación y continúala en otro asistente.
+
+  sessionbridge list --search "login"   Lista las conversaciones de esta carpeta que coinciden.
+
+  sessionbridge convert ID --to codex-win --dry-run   Muestra qué se llevaría, sin escribir nada.
+
+  sessionbridge sync list               Muestra las conversaciones sincronizadas."""
 app = typer.Typer(
     no_args_is_help=False,
     invoke_without_command=True,
     add_completion=True,
-    help="Intercambia sesiones entre asistentes locales.",
+    help=(
+        "Continúa conversaciones de Claude Code, Codex y OpenCode en cualquiera de ellos. "
+        "Sin comando, abre un buscador: elige una conversación y continúala en otro asistente."
+    ),
+    epilog=EXAMPLES,
 )
-profile_app = typer.Typer(no_args_is_help=True, help="Gestiona perfiles locales.")
+profile_app = typer.Typer(no_args_is_help=True, help="Gestiona los perfiles de cada asistente.")
 wsl_app = typer.Typer(no_args_is_help=True, help="Consulta o prepara WSL explícitamente.")
 app.add_typer(profile_app, name="profile")
 app.add_typer(wsl_app, name="wsl")
@@ -43,17 +58,7 @@ def _bridge():
     return Bridge()
 
 
-def _visible(value: Any, *, preserve_newlines: bool = False) -> str:
-    """Make terminal controls inert while preserving ordinary Unicode text."""
-    text = str(value)
-    return "".join(
-        ch
-        if preserve_newlines and ch == "\n"
-        else f"\\x{ord(ch):02x}"
-        if ord(ch) < 32 or 0x7F <= ord(ch) <= 0x9F
-        else ch
-        for ch in text
-    )
+_visible = ui.visible
 
 
 def _json_out(ok: bool, payload: Any) -> None:
@@ -85,7 +90,95 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
-def _emit(value: Any, *, body: bool = False) -> None:
+TRANSFER_STATES = {
+    "prepared": "Traspaso preparado",
+    "importing": "Importando",
+    "verifying": "Verificando",
+    "completed": "Conversión verificada",
+    "recovery": "Pendiente de recuperación",
+    "undone": "Deshecho",
+}
+
+
+def _rows(rows: list[tuple[str, str]]) -> None:
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style="bold", no_wrap=True)
+    grid.add_column(overflow="fold")
+    for label, text in rows:
+        grid.add_row(label, text)
+    _console_out.print(grid)
+
+
+def _emit_link(value: dict) -> None:
+    state = ui.LINK_STATES.get(value["state"], _visible(value["state"]))
+    _console_out.print(f"● {_visible(value['name'])}  ·  {state}", style="bold")
+    rows = [("ID", _visible(value["id"]))]
+    for endpoint in value["endpoints"]:
+        detail = _visible(endpoint.get("key", ""))
+        if endpoint.get("state") and endpoint.get("state") != "synced":
+            detail += f" ({_visible(endpoint['state'])})"
+        rows.append(("Sesión", detail))
+    for head in value["heads"]:
+        chosen = " · elegida" if head["id"] == value.get("selected_head") else ""
+        when = ui.relative_time(head.get("created_at"))
+        # sync select accepts a unique prefix, so the short form is enough to type.
+        source = _visible(str(head.get("source_key", "")).split(":", 1)[0])
+        rows.append(("Versión", f"{_visible(head['id'][:12])} · desde {source} · {when}{chosen}"))
+    if value.get("last_error"):
+        rows.append(("Diagnóstico", _visible(value["last_error"])))
+    if value.get("worker"):
+        rows.append(("Seguimiento", "en marcha" if value["worker"].get("running") else "detenido"))
+    _rows(rows)
+    if value["state"] == "conflict":
+        _console_out.print(
+            f"Elige una versión con: sessionbridge sync select {_visible(value['id'])} VERSIÓN "
+            "(las demás se conservan).",
+            style="dim",
+        )
+    elif value.get("last_error"):
+        _console_out.print("Comprueba el origen con: sessionbridge sync check", style="dim")
+
+
+def _emit_transfer(value: Any) -> None:
+    target = value.target
+    destination = profile_name = _visible(value.target_profile)
+    if target is not None:
+        destination = f"{ui.tool_name(target.tool)} ({profile_name})"
+    mark = "✓ " if value.state == "completed" else ""
+    _console_out.print(f"{mark}{TRANSFER_STATES.get(value.state, value.state)} · {destination}", style="bold")
+    fidelity = value.fidelity
+    parts = [
+        f"{len(fidelity.preserved)} conservados",
+        f"{len(fidelity.adapted)} adaptados",
+        f"{len(fidelity.archive_only)} solo en el archivo",
+    ]
+    if fidelity.missing:
+        parts.append(f"{len(fidelity.missing)} ausentes")
+    rows = []
+    if value.native_id:
+        rows.append(("Sesión", _visible(value.native_id)))
+    rows += [
+        ("Carpeta", _visible(value.cwd)),
+        ("Fidelidad", " · ".join(parts)),
+        ("Archivo", _visible(value.archive)),
+        ("Traspaso", _visible(value.id)),
+    ]
+    if value.mode == "handoff" and value.context_file:
+        rows.append(("Contexto", _visible(value.context_file)))
+    _rows(rows)
+    if value.mode == "handoff":
+        _console_out.print()
+        _console_out.print("Copia este mensaje en una conversación nueva; el primer envío lo haces tú:")
+        _console_out.print(_visible(value.initial_message, preserve_newlines=True))
+    elif value.state == "completed":
+        _console_out.print(
+            f"Ábrela cuando quieras con: sessionbridge resume {_visible(value.id)}", style="dim"
+        )
+    elif value.state == "recovery":
+        _console_out.print(f"Recupérala con: sessionbridge recover {_visible(value.id)}", style="dim")
+
+
+def _emit(value: Any, *, body: bool = False, empty: str | None = None, folders: bool = True) -> None:
     if _state["json"]:
         _json_out(True, value)
         return
@@ -116,80 +209,82 @@ def _emit(value: Any, *, body: bool = False) -> None:
         _emit(value["sync"])
         return
     if isinstance(value, dict) and "heads" in value and "endpoints" in value and "name" in value:
-        states = {
-            "synced": "Al día",
-            "waiting": "Esperando un turno terminado",
-            "conflict": "Ramas pendientes de elección",
-            "paused": "En pausa",
-            "unlinked": "Desvinculada; historial conservado",
-            "error": "Origen no verificable",
-        }
-        _console_out.print(f"Conversación: {_visible(value['name'])} ({_visible(value['id'])})")
-        _console_out.print(f"Estado: {states.get(value['state'], _visible(value['state']))}")
-        for head in value["heads"]:
-            chosen = " [seleccionada]" if head["id"] == value.get("selected_head") else ""
-            _console_out.print(
-                f"Rama: {_visible(head['id'])}{chosen}; origen: {_visible(head['source_key'])}"
-            )
-        for endpoint in value["endpoints"]:
-            _console_out.print(f"Sesión: {_visible(endpoint['key'])}; estado: {_visible(endpoint['state'])}")
-        if value.get("last_error"):
-            _console_out.print(
-                f"Diagnóstico: {_visible(value['last_error'])}; usa sync check o elige una rama explícita."
-            )
-        if value["state"] == "conflict":
-            _console_out.print("Elige con sync select CONVERSACIÓN REVISIÓN; se conservarán las demás ramas.")
-        if value.get("worker"):
-            _console_out.print(
-                "Seguimiento local iniciado." if value["worker"].get("running") else "Seguimiento detenido."
-            )
+        _emit_link(value)
         return
     if (
         isinstance(value, list)
         and value
         and all(isinstance(item, dict) and "heads" in item for item in value)
     ):
-        for item in value:
-            _emit(item)
+        for number, item in enumerate(value):
+            if number:
+                _console_out.print()
+            _emit_link(item)
         return
     if value.__class__.__name__ == "Transfer":
-        states = {
-            "prepared": "Traspaso preparado",
-            "completed": "Conversión verificada",
-            "recovery": "Pendiente de recuperación",
-            "undone": "Deshecho",
-        }
-        _console_out.print(f"{states.get(value.state, value.state)}: {_visible(value.id)}")
-        _console_out.print(f"Destino: {_visible(value.target_profile)}; carpeta: {_visible(value.cwd)}")
-        if value.native_id:
-            _console_out.print(f"Sesión nativa: {_visible(value.native_id)}")
-        _console_out.print(f"Archivo completo: {_visible(value.archive)}")
-        _console_out.print(
-            f"Conservados: {len(value.fidelity.preserved)}; adaptados: {len(value.fidelity.adapted)}; "
-            f"solo en archivo: {len(value.fidelity.archive_only)}; ausentes: {len(value.fidelity.missing)}"
-        )
-        if value.mode == "handoff":
-            _console_out.print(f"Contexto: {_visible(value.context_file)}")
-            _console_out.print("Copia este mensaje en una conversación nueva; tú realizarás el primer envío:")
-            _console_out.print(_visible(value.initial_message, preserve_newlines=True))
+        _emit_transfer(value)
         return
     if isinstance(value, list) and not value:
-        _console_out.print("No hay resultados.")
+        _console_out.print(empty or "No hay resultados.")
         return
     if isinstance(value, list) and all(item.__class__.__name__ == "SessionRef" for item in value):
-        table = Table(show_header=True, header_style="bold", expand=True)
-        for column in ("ID", "Herramienta", "Título", "Carpeta", "Actualizada", "Archivo", "Activa"):
-            table.add_column(column, overflow="ellipsis")
+        rows = []
         for ref in value:
-            table.add_row(
-                _visible(ref.key),
-                ref.tool,
-                _visible(ref.title.strip()),
-                _visible(ref.cwd),
-                _visible(ref.updated_at or ""),
-                "sí" if ref.archived else "no",
-                "sí" if ref.active else "no" if ref.active is False else "desconocido",
+            name = ui.title(ref)
+            if is_subagent(ref):
+                name = "Subagente" if name == "Sin título" else f"{name} (subagente)"
+            if ref.archived:
+                name += " (archivada)"
+            when = ui.relative_time(ref.updated_at or ref.created_at)
+            rows.append((name, ui.tool_name(ref.tool), when, ui.folder_name(ref.cwd), _visible(ref.key)))
+        # The ID is what commands take, so it is never cut. A table needs room for it and
+        # for a readable title; a narrow terminal gets one short entry per conversation.
+        needed = max(len(row[4]) for row in rows) + 11 + 11 + 30 + (22 if folders else 0) + 8
+        if _console_out.width < needed:
+            for name, tool, when, folder, key in rows:
+                _console_out.print(name, style="bold", overflow="ellipsis", no_wrap=True)
+                meta = [tool, when] + ([folder] if folders and folder else [])
+                _console_out.print("  " + " · ".join(part for part in meta if part), style="dim")
+                _console_out.print("  " + key, overflow="fold")
+            return
+        table = Table(show_header=True, header_style="bold", expand=True, box=None, pad_edge=False)
+        table.add_column("Título", ratio=1, min_width=24, no_wrap=True, overflow="ellipsis")
+        table.add_column("Asistente", no_wrap=True)
+        table.add_column("Actualizada", no_wrap=True)
+        if folders:
+            table.add_column("Carpeta", max_width=22, no_wrap=True, overflow="ellipsis")
+        table.add_column("ID", no_wrap=True)
+        for name, tool, when, folder, key in rows:
+            table.add_row(*(name, tool, when, *([folder] if folders else []), key))
+        _console_out.print(table)
+        return
+    if isinstance(value, list) and all(item.__class__.__name__ == "Transfer" for item in value):
+        rows = [
+            (
+                _visible(transfer.id),
+                TRANSFER_STATES.get(transfer.state, _visible(transfer.state)),
+                _visible(transfer.target_profile),
+                ui.folder_name(transfer.cwd),
+                ui.relative_time(transfer.created_at),
             )
+            for transfer in value
+        ]
+        # undo, recover and resume take the transfer ID, so it is never cut either.
+        widths = [max(len(row[index]) for row in rows) for index in range(5)]
+        if _console_out.width < sum(widths) + 8 + 10:
+            for identifier, state, target, folder, when in rows:
+                _console_out.print(identifier, overflow="fold")
+                meta = (state, target, folder, when)
+                _console_out.print("  " + " · ".join(part for part in meta if part), style="dim")
+            return
+        table = Table(show_header=True, header_style="bold", expand=True, box=None, pad_edge=False)
+        table.add_column("Traspaso", no_wrap=True)
+        table.add_column("Estado", no_wrap=True)
+        table.add_column("Destino", no_wrap=True)
+        table.add_column("Carpeta", no_wrap=True, overflow="ellipsis")
+        table.add_column("Fecha", no_wrap=True)
+        for row in rows:
+            table.add_row(*row)
         _console_out.print(table)
         return
     if hasattr(value, "model_dump"):
@@ -229,9 +324,14 @@ def root(
     ctx: typer.Context,
     json_output: bool = typer.Option(False, "--json", help="Devuelve una respuesta JSON versionada."),
     no_color: bool = typer.Option(False, "--no-color", help="Desactiva el color de terminal."),
-    all_projects: bool = typer.Option(False, "--all-projects", help="Busca en todas las carpetas."),
+    all_projects: bool = typer.Option(
+        False, "--all-projects", help="Busca en todas las carpetas, sin destacar la actual."
+    ),
 ) -> None:
-    """Intercambia sesiones locales con una vista previa auditable."""
+    """Continúa conversaciones de Claude Code, Codex y OpenCode en cualquiera de ellos.
+
+    Sin comando, abre un buscador de conversaciones: elige una y continúala en otro asistente.
+    """
     global _console_out, _console_err
     _state["json"] = json_output
     _state["no_color"] = no_color or bool(os.environ.get("NO_COLOR"))
@@ -248,22 +348,32 @@ def root(
             raise BridgeError("interactive_json_unsupported", "El asistente interactivo requiere modo texto.")
         from .interactive import run_home
 
-        _emit(run_home(_bridge(), cwd=None if all_projects else str(Path.cwd())))
+        result = run_home(_bridge(), cwd=None if all_projects else str(Path.cwd()))
+        if result is not None:
+            _emit(result)
 
 
 @app.command("list")
 def list_sessions(
-    tool: str | None = typer.Option(None, "--tool", "--from", help="Filtra por herramienta de origen."),
-    profile: str | None = typer.Option(None, "--profile"),
-    search: str | None = typer.Option(None, "--search"),
-    cwd: str | None = typer.Option(None, "--cwd"),
+    tool: str | None = typer.Option(
+        None, "--tool", "--from", help="Solo un asistente: claude, codex u opencode."
+    ),
+    profile: str | None = typer.Option(None, "--profile", help="Solo un perfil, por ejemplo codex-win."),
+    search: str | None = typer.Option(
+        None, "--search", help="Palabras del título, la carpeta o el ID; sin distinguir acentos."
+    ),
+    cwd: str | None = typer.Option(None, "--cwd", help="Carpeta de trabajo; por defecto, la actual."),
     all_projects: bool = typer.Option(False, "--all-projects", help="Lista sesiones de todas las carpetas."),
-    archived: bool | None = typer.Option(None, "--archived/--not-archived"),
-    parent: str | None = typer.Option(None, "--parent"),
-    since: str | None = typer.Option(None, "--since", help="Fecha ISO AAAA-MM-DD."),
-    until: str | None = typer.Option(None, "--until", help="Fecha ISO AAAA-MM-DD."),
+    archived: bool | None = typer.Option(
+        None, "--archived/--not-archived", help="Solo archivadas, o solo sin archivar."
+    ),
+    parent: str | None = typer.Option(
+        None, "--parent", help="Solo subagentes o bifurcaciones de esta sesión."
+    ),
+    since: str | None = typer.Option(None, "--since", help="Actualizadas desde esta fecha (AAAA-MM-DD)."),
+    until: str | None = typer.Option(None, "--until", help="Actualizadas hasta esta fecha (AAAA-MM-DD)."),
 ) -> None:
-    """Lista metadatos de sesiones; no incluye cuerpos de mensajes."""
+    """Lista conversaciones (solo metadatos, sin leer los mensajes)."""
     all_projects = all_projects or _state.get("all_projects", False)
     if all_projects and cwd is not None:
         raise BridgeError("invalid_arguments", "Elige --cwd o --all-projects, no ambos.")
@@ -286,31 +396,50 @@ def list_sessions(
         until=until,
     )
     for warning in getattr(bridge, "discovery_errors", []):
-        _console_err.print(f"Aviso de catálogo: {_visible(warning)}")
-    _emit(result)
+        message = warning.get("message", warning) if isinstance(warning, dict) else warning
+        profile_id = warning.get("profile") if isinstance(warning, dict) else None
+        _console_err.print(
+            f"Aviso: {_visible(message)}" + (f" ({_visible(profile_id)})" if profile_id else "")
+        )
+    hint = "" if all_projects else " Usa --all-projects para buscar en todas las carpetas."
+    _emit(result, empty="No hay conversaciones que coincidan." + hint, folders=cwd is None)
+    if result and not _state["json"]:
+        count = f"{len(result)} {'conversación' if len(result) == 1 else 'conversaciones'}"
+        where = "" if all_projects or cwd is None else f" en {_visible(cwd)}"
+        _console_err.print(f"{count}{where}.{hint}", style="dim")
 
 
 @app.command()
 def show(
-    key: str = typer.Argument(..., help="ID profile:native de la sesión."),
-    snapshot: bool = typer.Option(False, "--snapshot"),
+    key: str = typer.Argument(..., help="ID de la sesión (perfil:id, o un prefijo único)."),
+    snapshot: bool = typer.Option(
+        False, "--snapshot", help="Lee una instantánea aunque la sesión siga abierta."
+    ),
 ) -> None:
-    """Muestra el contenido completo de una sesión seleccionada deliberadamente."""
+    """Muestra todos los mensajes de una sesión."""
     _emit(_bridge().show(key, snapshot=snapshot), body=True)
 
 
 @app.command()
 def convert(
-    key: str = typer.Argument(...),
-    target: str = typer.Option(..., "--to"),
-    cwd: str | None = typer.Option(None),
-    context: str = typer.Option("current"),
-    context_from: str | None = typer.Option(None, "--context-from"),
-    snapshot: bool = typer.Option(False, "--snapshot"),
+    key: str = typer.Argument(..., help="ID de la sesión de origen (perfil:id, o un prefijo único)."),
+    target: str = typer.Option(..., "--to", help="Perfil de destino, por ejemplo codex-win."),
+    cwd: str | None = typer.Option(
+        None, help="Carpeta de trabajo en el destino; por defecto, la del origen."
+    ),
+    context: str = typer.Option(
+        "current", help="current: desde la última compactación; all: historial completo."
+    ),
+    context_from: str | None = typer.Option(
+        None, "--context-from", help="ID del mensaje desde el que empieza el contexto."
+    ),
+    snapshot: bool = typer.Option(
+        False, "--snapshot", help="Lee una instantánea aunque la sesión siga abierta."
+    ),
     mode: str = typer.Option("native", help="native o handoff; el handoff siempre es explícito."),
-    model: str | None = typer.Option(None),
-    new_copy: bool = typer.Option(False, "--new-copy"),
-    dry_run: bool = typer.Option(False, "--dry-run"),
+    model: str | None = typer.Option(None, help="Modelo con el que abrir el destino."),
+    new_copy: bool = typer.Option(False, "--new-copy", help="Crea otra copia aunque ya exista una."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Muestra la vista previa sin escribir nada."),
     resume_after: bool = typer.Option(
         False, "--resume", help="Reanuda al finalizar; requiere conversión nativa verificada."
     ),
@@ -319,7 +448,7 @@ def convert(
     ),
     sync_name: str | None = typer.Option(None, "--sync-name", help="Nombre de la conversación vinculada."),
 ) -> None:
-    """Transfiere una sesión; --dry-run solo genera una vista previa."""
+    """Continúa una sesión en otro asistente; --dry-run solo muestra la vista previa."""
     bridge = _bridge()
     options = {
         "cwd": cwd,
@@ -365,29 +494,39 @@ def convert(
 
 @app.command()
 def export(
-    key: str,
-    output: Path = typer.Option(..., "--output"),
-    snapshot: bool = typer.Option(False, "--snapshot"),
-    include_file: list[Path] = typer.Option([], "--include-file"),
+    key: str = typer.Argument(..., help="ID de la sesión (perfil:id, o un prefijo único)."),
+    output: Path = typer.Option(..., "--output", help="Paquete que se creará."),
+    snapshot: bool = typer.Option(
+        False, "--snapshot", help="Lee una instantánea aunque la sesión siga abierta."
+    ),
+    include_file: list[Path] = typer.Option(
+        [], "--include-file", help="Archivo adicional que incluir; repetible."
+    ),
 ) -> None:
-    """Exporta un paquete de sesión."""
+    """Exporta una sesión a un paquete portable."""
     _emit(_bridge().export(key, output, snapshot=snapshot, include_files=include_file or None))
 
 
 @app.command("import")
 def import_package(
-    package: Path,
-    target: str = typer.Option(..., "--to"),
-    cwd: str | None = typer.Option(None),
-    context: str = typer.Option("current"),
-    context_from: str | None = typer.Option(None, "--context-from"),
-    snapshot: bool = typer.Option(False, "--snapshot"),
-    mode: str = typer.Option("native"),
-    model: str | None = typer.Option(None),
-    new_copy: bool = typer.Option(False, "--new-copy"),
-    dry_run: bool = typer.Option(False, "--dry-run"),
+    package: Path = typer.Argument(..., help="Paquete exportado con sessionbridge export."),
+    target: str = typer.Option(..., "--to", help="Perfil de destino, por ejemplo codex-win."),
+    cwd: str | None = typer.Option(None, help="Carpeta de trabajo en el destino."),
+    context: str = typer.Option(
+        "current", help="current: desde la última compactación; all: historial completo."
+    ),
+    context_from: str | None = typer.Option(
+        None, "--context-from", help="ID del mensaje desde el que empieza el contexto."
+    ),
+    snapshot: bool = typer.Option(
+        False, "--snapshot", help="Sin efecto en paquetes; se acepta por compatibilidad."
+    ),
+    mode: str = typer.Option("native", help="native o handoff; el handoff siempre es explícito."),
+    model: str | None = typer.Option(None, help="Modelo con el que abrir el destino."),
+    new_copy: bool = typer.Option(False, "--new-copy", help="Crea otra copia aunque ya exista una."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Muestra la vista previa sin escribir nada."),
 ) -> None:
-    """Importa un paquete con opciones de destino explícitas."""
+    """Importa un paquete portable en un asistente."""
     bridge = _bridge()
     options = {
         "cwd": cwd,
@@ -405,8 +544,12 @@ def import_package(
 
 
 @app.command()
-def resume(key: str) -> None:
-    """Reanuda la sesión con el comando nativo exacto, sin enviar un mensaje nuevo."""
+def resume(
+    key: str = typer.Argument(
+        ..., help="ID de la sesión, de un traspaso o de una conversación sincronizada."
+    ),
+) -> None:
+    """Abre la sesión en su asistente, sin enviar ningún mensaje."""
     _emit(_resume(_bridge(), key))
 
 
@@ -433,26 +576,29 @@ def _resume(bridge: Any, key: str) -> dict[str, Any]:
 
 @app.command()
 def doctor() -> None:
-    """Comprueba lectores y escritores disponibles."""
+    """Comprueba qué asistentes se pueden leer y escribir."""
     _emit(_bridge().doctor())
 
 
 @app.command()
-def undo(transfer_id: str) -> None:
-    """Revierte una transferencia verificada cuando sigue siendo segura."""
+def undo(transfer_id: str = typer.Argument(..., help="ID del traspaso (tr_…).")) -> None:
+    """Deshace una conversión mientras siga siendo seguro."""
     _emit(_bridge().undo(transfer_id))
 
 
 @app.command()
-def recover(transfer_id: str) -> None:
-    """Recupera una transferencia pendiente desde su archivo verificado."""
+def recover(transfer_id: str = typer.Argument(..., help="ID del traspaso (tr_…).")) -> None:
+    """Completa un traspaso interrumpido desde su archivo verificado."""
     _emit(_bridge().recover(transfer_id))
 
 
 @app.command()
 def transfers() -> None:
-    """Lista transferencias preparadas o completadas."""
-    _emit(_bridge().transfers())
+    """Lista los traspasos realizados."""
+    _emit(
+        _bridge().transfers(),
+        empty="Aún no hay traspasos. Ejecuta sessionbridge para convertir una conversación.",
+    )
 
 
 @profile_app.command("list")

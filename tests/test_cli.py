@@ -228,6 +228,59 @@ def test_show_displays_body_with_controls_inert(monkeypatch, capsys):
     assert "\x1b" not in result.out
 
 
+def test_list_text_names_the_assistant_counts_results_and_keeps_controls_inert(monkeypatch, capsys):
+    global fake
+    fake = FakeBridge()
+    fake.refs.append(SessionRef(profile_id="local", native_id="def", tool="claude", title="  "))
+    monkeypatch.setenv("COLUMNS", "200")
+    code, result = _run_main(monkeypatch, capsys, ["list"])
+    assert code == 0, result
+    assert result.out.splitlines()[0].split() == ["Título", "Asistente", "Actualizada", "ID"]
+    assert "Codex" in result.out and "Claude Code" in result.out and "Sin título" in result.out
+    assert "\x1b" not in result.out and "A [bold]title\\x1b[31m" in result.out
+    assert "2 conversaciones en" in result.err and "--all-projects" in result.err
+
+
+def test_narrow_terminal_list_keeps_every_title_and_the_full_id(monkeypatch, capsys):
+    global fake
+    fake = FakeBridge()
+    fake.refs = [
+        SessionRef(
+            profile_id="claude-win",
+            native_id="fafa7ad4-f28c-4de5-abfc-dca9704acacb",
+            tool="claude",
+            title="Ruta inválida en sessionbridge",
+        )
+    ]
+    monkeypatch.setenv("COLUMNS", "60")
+    code, result = _run_main(monkeypatch, capsys, ["list"])
+    assert code == 0
+    assert "Título" not in result.out
+    assert "Ruta inválida en sessionbridge" in result.out
+    assert "claude-win:fafa7ad4-f28c-4de5-abfc-dca9704acacb" in result.out
+
+
+def test_empty_list_explains_how_to_widen_the_search(monkeypatch, capsys):
+    global fake
+    fake = FakeBridge()
+    fake.refs = []
+    code, result = _run_main(monkeypatch, capsys, ["list", "--search", "nada"])
+    assert code == 0
+    assert "No hay conversaciones que coincidan. Usa --all-projects" in result.out
+    code, result = _run_main(monkeypatch, capsys, ["list", "--all-projects", "--search", "nada"])
+    assert result.out.strip() == "No hay conversaciones que coincidan."
+
+
+def test_interactive_home_that_prints_its_own_result_adds_nothing(monkeypatch, capsys):
+    global fake
+    fake = FakeBridge()
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    monkeypatch.setattr("session_bridge.interactive.run_home", lambda bridge, **options: None)
+    code, result = _run_main(monkeypatch, capsys, [])
+    assert code == 0 and result.out == ""
+
+
 def test_non_tty_no_args_returns_json_error(monkeypatch, capsys):
     monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: False)
     monkeypatch.setattr(cli.sys.stdout, "isatty", lambda: False)
@@ -270,3 +323,30 @@ def test_real_entrypoint_emits_stable_json_for_usage_errors(tmp_path):
         assert result.stderr == ""
         envelope = json.loads(result.stdout)
         assert envelope["schema_version"] == 1 and envelope["ok"] is False
+
+
+def test_transfers_never_cut_the_transfer_id(monkeypatch, capsys):
+    from session_bridge.models import Fidelity, Transfer
+
+    global fake
+    fake = FakeBridge()
+    identifier = "tr_" + "a" * 32
+    fake.transfers = lambda: [
+        Transfer(
+            id=identifier,
+            identity="i",
+            state="completed",
+            mode="native",
+            source_key="local:abc",
+            target_profile="codex-win",
+            cwd="C:/Projects/app",
+            created_at="2026-10-20T10:00:00Z",
+            updated_at="2026-10-20T10:00:00Z",
+            archive="C:/a.zip",
+            fidelity=Fidelity(),
+        )
+    ]
+    for width in ("70", "200"):
+        monkeypatch.setenv("COLUMNS", width)
+        code, result = _run_main(monkeypatch, capsys, ["transfers"])
+        assert code == 0 and identifier in result.out, (width, result.out)

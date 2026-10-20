@@ -2,6 +2,26 @@
 
 This file records notable user-facing changes. Version numbers refer to the project package.
 
+## 0.4.0
+
+- Redesigned the interactive start screen as one live search over every conversation: sessions from Claude Code, Codex and OpenCode and synchronized conversations (marked ●) in one list. Conversations from the current folder come first, under "En esta carpeta", followed by "En otros proyectos", so a search never misses a conversation hidden behind a scope switch.
+- Results update as you type; the arrow keys, Tab, Page Up/Down, Enter and Esc work throughout, and going back keeps your search. Rows show the assistant, a relative date and, for other projects, the folder name; narrow terminals get a compact layout.
+- Subagent and helper threads (Claude Code subagents, OpenCode child sessions, Codex spawned agents and guardian reviews) are no longer listed as separate conversations in the interactive search.
+- Converting a session now takes two choices by default: where to continue it and what to do from a summary of the origin, destination, history, format and fidelity. From the summary you can convert, convert and keep it synchronized, or switch between the current context and the full history; after a native conversion you can open it right away.
+- A missing working folder asks for one with folder completion, an unsupported target version explains why and offers the manual handoff, and an ambiguous context start asks for an explicit choice.
+- Opening a synchronized conversation offers its versions with their origin and age when there is more than one, and only lists assistants that can open it.
+- The start screen no longer fails while the synchronization worker is busy: opening a current synchronization store no longer writes to it, and if synchronized conversations still cannot be read, the rest of the search stays available with a notice.
+- `list` shows titles, assistant names and relative dates, never cuts the session ID, drops the folder column when it lists a single folder, switches to a compact layout on narrow terminals and says how many results it found and how to widen the search. `transfers` is a table, and synchronized conversations show short version IDs.
+- Every command and option has Spanish help text, and `sessionbridge --help` includes examples.
+- Empty results explain what to do next.
+- Requires prompt-toolkit 3.0.52 or later.
+- Claude Code sessions now resolve the active branch the way Claude Code does when it resumes. Parallel tool results, interrupted attempts that were retried, metadata records and image notes beside tool results no longer cause a false ambiguity or drop the final reply. API error notices are left out. Prompts, task notifications and subagent reports delivered mid-turn are kept once.
+- Codex threads whose history is split across rollout segments, or forked from another thread, now include the earlier history they continue. Before, only the last file was read, and a conversation could lose its beginning. When that earlier history is missing, damaged or stops short, the context is marked ambiguous instead of silently starting later.
+- Messages between Codex agents are attributed correctly: an agent's own messages are its output, and messages from other agents reach it as input. A payload the source provider encrypted is marked as unavailable instead of being left empty.
+- Paginated Codex threads whose history Codex had not yet indexed are no longer marked ambiguous when their rollout exists; Codex resumes them from that rollout.
+- The current context no longer revives a message discarded by compaction when its retained copy shares its ID.
+- OpenCode sessions stored in both the legacy and v2 tables are read as one conversation instead of being marked ambiguous. A compaction appears once, with its retained recent conversation, and the current context starts there.
+
 ## 0.3.2
 
 - Scoped the interactive selector and session list to the launch directory by default, with an explicit global search option.
@@ -15,12 +35,6 @@ This file records notable user-facing changes. Version numbers refer to the proj
 - Native conversions on Windows now target the plain working directory instead of a `\\?\` path, so Claude Code finds the converted session in its project folder.
 - Codex `verified_answer` records (answers to the model's questions) no longer make the context ambiguous; the current context again starts at the last compaction instead of forcing the full history.
 - Enabled native writes for Claude Code 2.1.304 on Windows x64 after it passed the four isolated native gates; 2.1.302 is no longer the enabled version.
-- Claude Code sessions now resolve the active branch the way Claude Code does when it resumes. Parallel tool results, interrupted attempts that were retried, metadata records and image notes beside tool results no longer cause a false ambiguity or drop the final reply. API error notices are left out. Prompts, task notifications and subagent reports delivered mid-turn are kept once.
-- Codex threads whose history is split across rollout segments, or forked from another thread, now include the earlier history they continue. Before, only the last file was read, and a conversation could lose its beginning. When that earlier history is missing, damaged or stops short, the context is marked ambiguous instead of silently starting later.
-- Messages between Codex agents are attributed correctly: an agent's own messages are its output, and messages from other agents reach it as input. A payload the source provider encrypted is marked as unavailable instead of being left empty.
-- Paginated Codex threads whose history Codex had not yet indexed are no longer marked ambiguous when their rollout exists; Codex resumes them from that rollout.
-- The current context no longer revives a message discarded by compaction when its retained copy shares its ID.
-- OpenCode sessions stored in both the legacy and v2 tables are read as one conversation instead of being marked ambiguous. A compaction appears once, with its retained recent conversation, and the current context starts there.
 
 ## 0.3.1
 

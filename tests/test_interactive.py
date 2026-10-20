@@ -1,148 +1,413 @@
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
-from prompt_toolkit.completion import CompleteEvent
-from prompt_toolkit.document import Document
+import pytest
+from prompt_toolkit.application import create_app_session
+from prompt_toolkit.input import create_pipe_input
+from prompt_toolkit.output import DummyOutput
 
-from session_bridge import interactive
+from session_bridge import interactive, ui
 from session_bridge.errors import BridgeError
-from session_bridge.models import Conversation, SessionRef
+from session_bridge.models import Conversation, Fidelity, SessionRef, Transfer
+
+DOWN, ESC = "\x1b[B", "\x1b"
 
 
-def test_completion_replaces_the_entire_multiword_search(monkeypatch):
-    value = "Investiga y diseña prompt de orquestación | C:/demo | codex-win:example"
-    query = "Investiga y diseña prompt de orquest"
+@pytest.fixture(autouse=True)
+def text_mode(monkeypatch):
+    # The interactive flow only runs in text mode; earlier CLI tests may leave --json set.
+    from session_bridge import cli
 
-    class Session:
-        def __init__(self, *, completer, **kwargs):
-            self.completer = completer
-            self.calls = 0
-
-        def prompt(self, label):
-            self.calls += 1
-            assert self.calls == 1, "Accepting a completion must select a valid full option"
-            completions = list(
-                self.completer.get_completions(Document(query), CompleteEvent(completion_requested=True))
-            )
-            assert len(completions) == 1
-            choice = completions[0]
-            return query[: len(query) + choice.start_position] + choice.text
-
-    monkeypatch.setattr(interactive, "PromptSession", Session)
-    assert interactive._choose("Sesión", [value]) == value
+    monkeypatch.setitem(cli._state, "json", False)
 
 
-def test_typed_search_and_completion_agree_on_accents_and_reordered_words(monkeypatch):
-    value = "Diseña un motor de búsqueda | /work/app | codex-local:example"
-    answers = iter(["BUSQUEDA   motor disena"])
-
-    class Session:
-        def __init__(self, *, completer, **kwargs):
-            matches = list(
-                completer.get_completions(
-                    Document("BUSQUEDA motor disena"), CompleteEvent(completion_requested=True)
-                )
-            )
-            assert [item.text for item in matches] == [value]
-
-        def prompt(self, label):
-            return next(answers)
-
-    monkeypatch.setattr(interactive, "PromptSession", Session)
-    assert interactive._choose("Sesión", [value]) == value
+def keys(text, action):
+    """Drive the real prompt_toolkit widgets with keystrokes."""
+    with create_pipe_input() as source, create_app_session(input=source, output=DummyOutput()):
+        source.send_text(text)
+        return action()
 
 
-def test_source_picker_keeps_empty_local_scope_until_explicit_global_selection(monkeypatch):
-    foreign = SessionRef(
-        profile_id="source", native_id="a", tool="codex", title="Another project", cwd="/other"
+def session(native_id, title, cwd, *, tool="claude", profile="claude-win", minutes=1, **extra):
+    stamp = (datetime.now(UTC) - timedelta(minutes=minutes)).isoformat()
+    return SessionRef(
+        profile_id=profile, native_id=native_id, tool=tool, title=title, cwd=cwd, updated_at=stamp, **extra
     )
-    calls = []
-
-    def discover(**options):
-        calls.append(options)
-        return [] if options["cwd"] is not None else [foreign]
-
-    def choose(label, values):
-        if len(calls) == 1:
-            assert not any("Another project" in value for value in values)
-            return interactive.ALL_PROJECTS
-        return next(value for value in values if "Another project" in value)
-
-    monkeypatch.setattr(interactive, "_choose", choose)
-    bridge = SimpleNamespace(list_sessions=discover)
-    assert interactive._source_session(bridge, "/current") is foreign
-    assert calls == [{"cwd": "/current"}, {"cwd": None}]
 
 
-def test_home_directory_scope_filters_linked_conversations_and_has_global_escape(monkeypatch):
+def profile(id, tool, environment="windows"):
+    return SimpleNamespace(id=id, tool=tool, enabled=True, environment=environment)
+
+
+CHOICES = [
+    interactive.Choice(value="motor", label="Diseña un motor de búsqueda", detail="Codex · ayer"),
+    interactive.Choice(value="ruta", label="Ruta inválida en sessionbridge", detail="Claude Code · ahora"),
+    interactive.Choice(value="otra", label="Otra ruta", detail="OpenCode · ayer"),
+]
+
+
+def test_search_ignores_accents_case_and_word_order():
+    assert keys("BUSQUEDA   motor disena\r", lambda: interactive.pick(CHOICES, heading=[])) == (
+        "motor",
+        "BUSQUEDA   motor disena",
+    )
+
+
+def test_arrow_keys_move_through_matches_and_escape_leaves_without_choosing():
+    assert keys("ruta" + DOWN + "\r", lambda: interactive.pick(CHOICES, heading=[]))[0] == "otra"
+    assert keys(ESC, lambda: interactive.pick(CHOICES, heading=[])) == (None, "")
+
+
+def test_enter_without_matches_keeps_the_query_and_explains_why():
+    with create_app_session(output=DummyOutput()):
+        picker = interactive._Picker(
+            CHOICES, heading=[], placeholder="", empty="Nada coincide con «{query}».", noun=("a", "b")
+        )
+        picker.buffer.text = "zzz  nada"
+        text = "".join(fragment for _, fragment in picker._lines())
+    assert "Nada coincide con «zzz nada»." in text
+    # Enter does nothing until something matches; the query is never lost.
+    assert keys("\r" + ESC, lambda: interactive.pick(CHOICES, heading=[], query="zzz")) == (None, "zzz")
+
+
+def test_closer_match_comes_first_and_long_labels_are_truncated():
+    with create_app_session(output=DummyOutput()):
+        picker = interactive._Picker(CHOICES, heading=[], placeholder="", empty="", noun=("a", "b"))
+        picker.buffer.text = "ruta"
+    assert [item.value for item in picker.matches] == ["ruta", "otra"]
+    assert interactive._fit("una conversación muy larga", 10) == "una conve…"
+    assert interactive._fit("corta", 10) == "corta"
+
+
+def test_home_finds_an_unlinked_conversation_in_another_project_while_links_exist():
+    # The reported bug: the home screen used to search only synchronized conversations.
     links = [
-        {"id": "ln_current", "name": "Current", "state": "synced", "endpoints": [{"cwd": "/current"}]},
-        {"id": "ln_foreign", "name": "Other", "state": "synced", "endpoints": [{"cwd": "/other"}]},
-        {"id": "ln_unknown", "name": "Unknown", "state": "synced", "endpoints": []},
+        {
+            "id": "ln_home",
+            "name": "Inicio sessionbridge",
+            "state": "conflict",
+            "endpoints": [{"key": "codex-win:linked", "cwd": "C:/Projects/session-bridge"}],
+        }
     ]
+    sessions = [
+        session("here", "Ruta inválida en sessionbridge", "C:/Other/place"),
+        session(
+            "linked",
+            "Already represented by its link",
+            "C:/Projects/session-bridge",
+            tool="codex",
+            profile="codex-win",
+        ),
+    ]
+    choices = interactive.home_choices(sessions, links, "C:/Projects/session-bridge")
+    found = interactive.ranked(choices, "ruta inválida")
+    assert [item.value[1].native_id for item in found] == ["here"]
+    assert found[0].group == interactive.ELSEWHERE
+    assert not any("Already represented" in item.label for item in choices)
+
+
+def test_home_lists_this_folder_first_links_marked_and_subagents_hidden():
+    links = [
+        {"id": "ln_a", "name": "Daily", "state": "synced", "endpoints": [{"key": "x:1", "cwd": "/current"}]}
+    ]
+    sessions = [
+        session("new", "Elsewhere newest", "/other", minutes=1),
+        session("old", "Here older", "/current", minutes=90),
+        session("child", "", "/current", metadata={"subagent": True}, parent_id="old"),
+        session(
+            "spawned", "Worker", "/current", tool="codex", profile="codex-win", metadata={"spawned": True}
+        ),
+        session("fork", "Forked plan", "/current", tool="codex", profile="codex-win", parent_id="old"),
+    ]
+    choices = interactive.home_choices(sessions, links, "/current")
+    assert [(item.group, item.label) for item in choices] == [
+        (interactive.HERE, "Daily"),
+        (interactive.HERE, "Here older"),
+        (interactive.HERE, "Forked plan"),
+        (interactive.ELSEWHERE, "Elsewhere newest"),
+    ]
+    assert choices[0].marker == "●" and "Sincronizada · Al día" in choices[0].detail
+    # Other projects name their folder so two equal titles can be told apart.
+    assert "other" in choices[3].detail and "Claude Code" in choices[3].detail
+
+
+def test_all_projects_scope_orders_by_recency_without_folder_groups():
+    sessions = [session("a", "One", "/one", minutes=1), session("b", "", "/two", minutes=5)]
+    choices = interactive.home_choices(sessions, [], None)
+    assert [(item.group, item.label) for item in choices] == [("", "One"), ("", "Sin título")]
+
+
+def _home(monkeypatch, sessions, links=()):
     monkeypatch.setattr(
-        "session_bridge.sync.SyncService", lambda **kwargs: SimpleNamespace(list=lambda: links)
+        "session_bridge.sync.SyncService", lambda **kwargs: SimpleNamespace(list=lambda: list(links))
     )
-    calls = []
-
-    def choose(label, values):
-        calls.append(values)
-        if len(calls) == 1:
-            assert any("ln_current" in value for value in values)
-            assert not any("ln_foreign" in value or "ln_unknown" in value for value in values)
-            return interactive.ALL_PROJECTS
-        assert any("ln_foreign" in value for value in values)
-        assert any("ln_unknown" in value for value in values)
-        return interactive.CANCEL
-
-    monkeypatch.setattr(interactive, "_choose", choose)
-    assert interactive.run_home(object(), cwd="/current") == {"cancelled": True}
+    return SimpleNamespace(list_sessions=lambda **options: sessions, profiles=lambda: [], discovery_errors=[])
 
 
-def test_ambiguous_search_requires_a_deliberate_selection(monkeypatch):
-    values = ["Shared name | project | id-a", "Shared name | project | id-b"]
-    answers = iter(["shared name", values[1]])
-    monkeypatch.setattr(
-        interactive, "PromptSession", lambda **kwargs: SimpleNamespace(prompt=lambda _: next(answers))
-    )
-    assert interactive._choose("Session", values) == values[1]
+def test_going_back_from_an_action_returns_to_the_search_with_the_same_query(monkeypatch):
+    ref = session("a", "Ruta inválida", "/current")
+    bridge = _home(monkeypatch, [ref])
+    queries = []
+
+    def pick(choices, *, query, **options):
+        queries.append(query)
+        return (choices[0].value, "ruta") if len(queries) == 1 else (None, query)
+
+    monkeypatch.setattr(interactive, "pick", pick)
+    monkeypatch.setattr(interactive, "_convert", lambda bridge, value, profiles: interactive.BACK)
+    assert interactive.run_home(bridge, cwd="/current") is None
+    assert queries == ["", "ruta"]
 
 
-def test_wizard_searches_metadata_requests_destination_and_explicit_fallback(monkeypatch):
-    ref = SessionRef(
-        profile_id="source", native_id="abc", tool="claude", title="My feature", cwd="/old/project"
-    )
-    choices = iter(["source", "target", "current", "native"])
+def test_home_stays_usable_when_the_sync_store_is_busy(monkeypatch):
+    def busy(**kwargs):
+        raise BridgeError("sync_store_invalid", "database is locked")
 
-    def choose(label, values):
-        wanted = next(choices)
-        if wanted == "source":
-            assert "My feature" in values[0] and "/old/project" in values[0]
-            return values[0]
-        return values[0] if wanted == "target" else wanted
-
-    monkeypatch.setattr(interactive, "_choose", choose)
-    monkeypatch.setattr(interactive, "confirm", lambda *a, **k: True)
-    monkeypatch.setattr(interactive, "prompt", lambda *a, **k: "C:/destination", raising=False)
-    observed = []
-
-    def preview(key, target, **options):
-        if options.get("cwd") != "C:/destination":
-            raise BridgeError("cwd_missing", "Carpeta ausente.")
-        return {"native_available": options["mode"] == "handoff", "capability": {"reason": "Unverified"}}
-
-    def convert(key, target, **options):
-        observed.append(options)
-        return {"state": "prepared"}
-
+    monkeypatch.setattr("session_bridge.sync.SyncService", busy)
     bridge = SimpleNamespace(
-        list_sessions=lambda **kwargs: [ref],
-        show=lambda *a, **k: Conversation(source=ref),
-        profiles=lambda: [SimpleNamespace(id="target", tool="codex", enabled=True)],
-        preview=preview,
-        convert=convert,
+        list_sessions=lambda **options: [session("a", "Still here", "/current")],
+        profiles=lambda: [],
+        discovery_errors=[],
     )
-    assert interactive.run_wizard(bridge) == {"state": "prepared"}
-    assert observed[0]["cwd"] == "C:/destination" and observed[0]["mode"] == "handoff"
+    seen = {}
+
+    def pick(choices, *, heading, **options):
+        seen["labels"] = [item.label for item in choices]
+        seen["heading"] = "".join(text for _, text in heading)
+        return None, ""
+
+    monkeypatch.setattr(interactive, "pick", pick)
+    assert interactive.run_home(bridge, cwd="/current") is None
+    assert seen["labels"] == ["Still here"]
+    assert "No se pudieron leer las conversaciones sincronizadas" in seen["heading"]
+
+
+def test_home_without_conversations_explains_what_to_check(monkeypatch, capsys):
+    bridge = _home(monkeypatch, [])
+    monkeypatch.setattr(interactive, "pick", lambda *a, **k: pytest.fail("nothing to pick"))
+    assert interactive.run_home(bridge, cwd="/current") is None
+    assert "sessionbridge doctor" in capsys.readouterr().out
+
+
+class ConvertBridge:
+    data_dir = "unused-in-test"
+
+    def __init__(self, ref, *, ambiguous=False, native=True, missing_cwd=False):
+        self.ref, self.ambiguous, self.native, self.missing_cwd = ref, ambiguous, native, missing_cwd
+        self.previews, self.converts = [], []
+
+    def show(self, key, snapshot=False):
+        return Conversation(source=self.ref, context_ambiguous=self.ambiguous)
+
+    def preview(self, key, target, **options):
+        self.previews.append(options)
+        if self.missing_cwd and options["cwd"] != "C:/destination":
+            raise BridgeError("cwd_missing", "Carpeta ausente.")
+        native = self.native or options["mode"] == "handoff"
+        return {
+            "cwd": options["cwd"] or self.ref.cwd,
+            "message_count": 3,
+            "native_available": native,
+            "capability": {"reason": "Versión no verificada"},
+            "fidelity": {},
+        }
+
+    def convert(self, key, target, **options):
+        self.converts.append((target, options))
+        return Transfer(
+            id="tr_test",
+            identity="i",
+            state="completed" if options["mode"] == "native" else "prepared",
+            mode=options["mode"],
+            source_key=key,
+            target_profile=target,
+            native_id="new-session" if options["mode"] == "native" else None,
+            cwd=options["cwd"] or self.ref.cwd,
+            created_at="2026-10-20T10:00:00Z",
+            updated_at="2026-10-20T10:00:00Z",
+            archive="C:/archive.zip",
+            initial_message="Continúa desde aquí" if options["mode"] == "handoff" else None,
+            fidelity=Fidelity(),
+        )
+
+
+def _answers(monkeypatch, *answers):
+    asked = []
+    pending = list(answers)
+
+    def ask(message, options, **kwargs):
+        asked.append((message, [label for _, label in options]))
+        wanted = pending.pop(0)
+        if wanted is interactive.BACK:
+            return interactive.BACK
+        return next(value for value, label in options if value == wanted or label == wanted)
+
+    monkeypatch.setattr(interactive, "_ask", ask)
+    return asked
+
+
+PROFILES = [
+    profile("claude-win", "claude"),
+    profile("codex-win", "codex"),
+    profile("opencode-win", "opencode"),
+]
+
+
+def test_conversion_asks_only_destination_and_confirmation_then_offers_to_open(monkeypatch, capsys):
+    ref = session("a", "Mi tarea", "C:/project")
+    bridge = ConvertBridge(ref)
+    asked = _answers(monkeypatch, "codex-win", "convert", "open")
+    opened = []
+    monkeypatch.setattr("session_bridge.cli._resume", lambda bridge, key: opened.append(key))
+    assert interactive._convert(bridge, ref, PROFILES) is None
+    # The source assistant is not offered as its own destination.
+    assert asked[0][1] == ["Codex", "OpenCode", "Volver a la búsqueda"]
+    assert "Convertir y mantenerla sincronizada (solo su historial)" in asked[1][1]
+    assert bridge.converts == [
+        (
+            "codex-win",
+            {"cwd": None, "context": "current", "context_from": None, "snapshot": False, "mode": "native"},
+        )
+    ]
+    assert opened == ["tr_test"]
+    out = capsys.readouterr().out
+    assert "Contexto actual (desde la última compactación) · 3 mensajes" in out
+    assert "✓ Conversión verificada" in out
+
+
+def test_conversion_can_switch_to_the_full_history_from_the_summary(monkeypatch):
+    ref = session("a", "Mi tarea", "C:/project")
+    bridge = ConvertBridge(ref)
+    _answers(monkeypatch, "codex-win", "toggle", "convert", "done")
+    interactive._convert(bridge, ref, PROFILES)
+    assert [options["context"] for options in bridge.previews] == ["current", "all"]
+    assert bridge.converts[0][1]["context"] == "all"
+
+
+def test_missing_folder_and_unsupported_version_lead_to_an_explicit_manual_handoff(monkeypatch, capsys):
+    ref = session("a", "Mi tarea", "C:/gone")
+    bridge = ConvertBridge(ref, native=False, missing_cwd=True)
+    asked = _answers(monkeypatch, "codex-win", "handoff", "convert")
+    monkeypatch.setattr(interactive, "_ask_folder", lambda message, default="": "C:/destination")
+    assert interactive._convert(bridge, ref, PROFILES) is None
+    target, options = bridge.converts[0]
+    assert options["cwd"] == "C:/destination" and options["mode"] == "handoff"
+    # A handoff cannot be opened natively, and it cannot be kept synchronized.
+    assert not any("¿Abrir ahora" in message for message, _ in asked)
+    assert not any("sincronizada" in label for _, labels in asked for label in labels)
+    out = capsys.readouterr().out
+    assert "no existe en este equipo" in out and "Continúa desde aquí" in out
+
+
+def test_empty_folder_answer_goes_back_without_converting(monkeypatch):
+    ref = session("a", "Mi tarea", "C:/gone")
+    bridge = ConvertBridge(ref, missing_cwd=True)
+    _answers(monkeypatch, "codex-win")
+    monkeypatch.setattr(interactive, "_ask_folder", lambda message, default="": None)
+    assert interactive._convert(bridge, ref, PROFILES) is interactive.BACK
+    assert bridge.converts == []
+
+
+def test_ambiguous_context_requires_an_explicit_choice(monkeypatch):
+    ref = session("a", "Mi tarea", "C:/project")
+    bridge = ConvertBridge(ref, ambiguous=True)
+    asked = _answers(monkeypatch, "codex-win", "all", "convert", "done")
+    interactive._convert(bridge, ref, PROFILES)
+    assert asked[1][0].startswith("No se puede saber con certeza")
+    assert bridge.converts[0][1]["context"] == "all"
+    # The full history was chosen deliberately; the summary does not offer a guess back.
+    assert "Llevar solo el contexto actual" not in asked[2][1]
+
+
+def test_escape_at_the_destination_goes_back_to_the_search(monkeypatch):
+    ref = session("a", "Mi tarea", "C:/project")
+    bridge = ConvertBridge(ref)
+    _answers(monkeypatch, interactive.BACK)
+    assert interactive._convert(bridge, ref, PROFILES) is interactive.BACK
+    assert bridge.previews == [] and bridge.converts == []
+
+
+class LinkService:
+    def __init__(self, link, *, fail_cwd=False):
+        self.link, self.fail_cwd, self.calls = link, fail_cwd, []
+
+    def unpause(self, link):
+        self.calls.append(("unpause", link))
+
+    def poll(self, link, *, force):
+        self.calls.append(("poll", link, force))
+
+    def status(self, link):
+        return self.link
+
+    def open(self, link, target, *, branch, cwd, launch):
+        self.calls.append(("open", link, target, branch, cwd, launch))
+        if self.fail_cwd and cwd is None:
+            raise BridgeError("cwd_required", "Needs a working folder.")
+
+
+def _link(state, heads=(), paused=False):
+    return {
+        "id": "ln_x",
+        "name": "Daily",
+        "state": state,
+        "paused": paused,
+        "heads": list(heads),
+        "endpoints": [],
+    }
+
+
+def test_link_without_a_completed_turn_waits_without_choosing_a_destination(monkeypatch, capsys):
+    service = LinkService(_link("waiting"))
+    workers = []
+    monkeypatch.setattr("session_bridge.sync_cli._ensure_worker", workers.append)
+    monkeypatch.setattr(interactive, "_ask", lambda *a, **k: pytest.fail("nothing to ask"))
+    bridge = SimpleNamespace(data_dir="data")
+    assert interactive._open_link(bridge, service, service.link, PROFILES) is None
+    assert service.calls == [("poll", "ln_x", True)] and workers == ["data"]
+    assert "Aún no hay un turno terminado" in capsys.readouterr().out
+
+
+def test_conflict_requires_an_explicit_version_and_offers_only_windows_assistants(monkeypatch):
+    heads = [
+        {"id": "rv_one", "source_key": "codex-win:a", "reason": "append", "created_at": None},
+        {"id": "rv_two", "source_key": "claude-win:b", "reason": "context_replacement", "created_at": None},
+    ]
+    service = LinkService(_link("conflict", heads))
+    monkeypatch.setattr("session_bridge.sync_cli._ensure_worker", lambda root: None)
+    asked = _answers(monkeypatch, "rv_two", "codex-win")
+    profiles = [profile("linux-codex", "codex", "posix"), profile("codex-win", "codex")]
+    interactive._open_link(SimpleNamespace(data_dir="d"), service, service.link, profiles)
+    assert asked[0][1] == ["Desde Codex · continuación", "Desde claude-win · tras una compactación", "Volver"]
+    assert asked[1][1] == ["Codex", "Volver"]
+    assert service.calls[-1] == ("open", "ln_x", "codex-win", "rv_two", None, True)
+
+
+def test_paused_link_can_go_back_before_polling(monkeypatch):
+    service = LinkService(_link("paused", paused=True))
+    _answers(monkeypatch, interactive.BACK)
+    assert interactive._open_link(SimpleNamespace(), service, service.link, PROFILES) is interactive.BACK
+    assert service.calls == []
+
+
+def test_link_asks_for_a_folder_when_its_own_is_gone(monkeypatch):
+    head = {"id": "rv", "source_key": "codex-win:a", "reason": "append"}
+    service = LinkService(_link("synced", [head]), fail_cwd=True)
+    monkeypatch.setattr("session_bridge.sync_cli._ensure_worker", lambda root: None)
+    _answers(monkeypatch, "codex-win")
+    monkeypatch.setattr(interactive, "_ask_folder", lambda message, default="": "C:/existing")
+    assert interactive._open_link(SimpleNamespace(data_dir="d"), service, service.link, PROFILES) is None
+    assert service.calls[-2:] == [
+        ("open", "ln_x", "codex-win", None, None, True),
+        ("open", "ln_x", "codex-win", None, "C:/existing", True),
+    ]
+    service.calls.clear()
+    _answers(monkeypatch, "codex-win")
+    monkeypatch.setattr(interactive, "_ask_folder", lambda message, default="": None)
+    assert (
+        interactive._open_link(SimpleNamespace(data_dir="d"), service, service.link, PROFILES)
+        is interactive.BACK
+    )
 
 
 def test_confirmation_supports_spanish_and_defaults_to_no(monkeypatch):
@@ -153,195 +418,162 @@ def test_confirmation_supports_spanish_and_defaults_to_no(monkeypatch):
     assert not interactive.confirm("Proceed?")
 
 
-def test_run_home_waits_without_opening_when_link_has_no_completed_head(monkeypatch):
-    linked = {"id": "ln_waiting", "name": "Daily", "state": "waiting", "paused": False, "heads": []}
-    calls = []
-
-    class Service:
-        def __init__(self, *, bridge):
-            pass
-
-        def list(self):
-            return [linked]
-
-        def poll(self, link, *, force):
-            calls.append(("poll", link, force))
-
-        def status(self, link):
-            return linked
-
-    class Bridge:
-        data_dir = "unused-in-test"
-
-        def profiles(self):
-            raise AssertionError("a waiting link must not select a destination")
-
-    def choose(label, values):
-        assert label == "Conversación o nueva conversión"
-        return next(value for value in values if "ln_waiting" in value)
-
-    monkeypatch.setattr("session_bridge.sync.SyncService", Service)
-    monkeypatch.setattr("session_bridge.sync_cli._ensure_worker", lambda root: calls.append(("worker", root)))
-    monkeypatch.setattr(interactive, "_choose", choose)
-
-    result = interactive.run_home(Bridge())
-
-    assert result is linked
-    assert calls == [("poll", "ln_waiting", True), ("worker", "unused-in-test")]
-
-
-def test_run_home_conflict_requires_explicit_branch_and_filters_non_windows_targets(monkeypatch):
-    linked = {
-        "id": "ln_conflict",
-        "name": "Daily",
-        "state": "conflict",
-        "paused": False,
-        "heads": [
-            {"id": "rv_one", "source_key": "codex-win:a", "reason": "append"},
-            {"id": "rv_two", "source_key": "claude-win:b", "reason": "context_replacement"},
-        ],
-    }
-    calls = []
-
-    class Service:
-        def __init__(self, *, bridge):
-            pass
-
-        def list(self):
-            return [linked]
-
-        def poll(self, link, *, force):
-            calls.append(("poll", link, force))
-
-        def status(self, link):
-            return linked
-
-        def open(self, link, target, *, branch, cwd, launch):
-            calls.append(("open", link, target, branch, cwd, launch))
-            return {"link_id": link, "profile": target, "revision_id": branch}
-
-    class Bridge:
-        data_dir = "unused-in-test"
-
-        def profiles(self):
-            return [
-                SimpleNamespace(id="linux-codex", tool="codex", enabled=True, environment="posix"),
-                SimpleNamespace(id="windows-codex", tool="codex", enabled=True, environment="windows"),
-                SimpleNamespace(id="windows-off", tool="claude", enabled=False, environment="windows"),
-            ]
-
-    choices = []
-
-    def choose(label, values):
-        choices.append((label, values))
-        if label == "Conversación o nueva conversión":
-            return next(value for value in values if "ln_conflict" in value)
-        if label == "Rama verificada":
-            return next(value for value in values if value.startswith("rv_two"))
-        if label == "Abrir con":
-            return values[0]
-        raise AssertionError(label)
-
-    monkeypatch.setattr("session_bridge.sync.SyncService", Service)
-    monkeypatch.setattr("session_bridge.sync_cli._ensure_worker", lambda root: calls.append(("worker", root)))
-    monkeypatch.setattr(interactive, "_choose", choose)
-
-    result = interactive.run_home(Bridge())
-
-    assert result["revision_id"] == "rv_two"
-    target_values = next(values for label, values in choices if label == "Abrir con")
-    assert target_values == ["windows-codex (codex)"]
-    assert calls == [
-        ("poll", "ln_conflict", True),
-        ("worker", "unused-in-test"),
-        ("open", "ln_conflict", "windows-codex", "rv_two", None, True),
+def test_relative_dates_paths_and_assistant_names_read_naturally():
+    now = datetime(2026, 10, 20, 12, 0, tzinfo=UTC)
+    stamps = [now - timedelta(seconds=20), now - timedelta(minutes=5), now - timedelta(days=3)]
+    assert [ui.relative_time(stamp.isoformat(), now=now) for stamp in stamps] == [
+        "ahora",
+        "hace 5 min",
+        "hace 3 días",
     ]
+    assert ui.relative_time("2025-03-02T10:00:00Z", now=now) == "2 mar 2025"
+    assert ui.relative_time("not a date") == ""
+    assert ui.folder_name("\\\\?\\C:\\Users\\me\\Projects\\app") == "app"
+    assert ui.folder_name("/home/me/work/app") == "app"
+    assert ui.folder_name("C:\\") == "C:\\"
+    assert ui.profile_label(profile("codex-wsl", "codex", "wsl")) == "Codex (WSL)"
+    shared = [profile("a", "codex"), profile("b", "codex")]
+    assert ui.profile_label(shared[0], shared) == "Codex (a)"
 
 
-def test_run_home_paused_link_can_cancel_before_poll_or_worker(monkeypatch):
-    linked = {"id": "ln_paused", "name": "Daily", "state": "paused", "paused": True, "heads": []}
-    calls = []
-
-    class Service:
-        def __init__(self, *, bridge):
-            pass
-
-        def list(self):
-            return [linked]
-
-        def unpause(self, link):
-            calls.append(("unpause", link))
-
-    class Bridge:
-        def profiles(self):
-            raise AssertionError("cancel must not inspect profiles")
-
-    monkeypatch.setattr("session_bridge.sync.SyncService", Service)
-    monkeypatch.setattr("session_bridge.sync_cli._ensure_worker", lambda root: calls.append(("worker", root)))
-    monkeypatch.setattr(
-        interactive, "_choose", lambda label, values: next(v for v in values if "ln_paused" in v)
-    )
-    monkeypatch.setattr(interactive, "confirm", lambda *args, **kwargs: False)
-
-    assert interactive.run_home(Bridge()) == {"cancelled": True}
-    assert calls == []
+# ---------------------------------------------------------------------------
+# Review findings
 
 
-def test_run_home_retries_missing_cwd_and_can_cancel_empty_retry(monkeypatch):
-    linked = {
-        "id": "ln_ready",
-        "name": "Daily",
-        "state": "synced",
-        "paused": False,
-        "heads": [{"id": "rv_head", "source_key": "codex-win:a", "reason": "append"}],
-    }
+class SyncFake:
+    """SyncService stand-in: records links and refuses taken names like the real store."""
 
-    class Service:
-        def __init__(self, *, bridge):
-            self.opens = []
+    names = ["Taken name"]
+    linked = []
 
-        def list(self):
-            return [linked]
+    def __init__(self, *, bridge=None):
+        self.store = SimpleNamespace(links=lambda include_unlinked=False: [{"name": n} for n in self.names])
 
-        def poll(self, link, *, force):
-            pass
+    def link(self, key, *, name=None, transfer_id=None):
+        self.linked.append((key, name, transfer_id))
+        return {"id": "ln_new", "name": name or "ln_new", "state": "synced", "heads": [], "endpoints": []}
 
-        def status(self, link):
-            return linked
 
-        def open(self, link, target, *, branch, cwd, launch):
-            self.opens.append((link, target, branch, cwd, launch))
-            if cwd is None:
-                raise BridgeError("cwd_required", "Needs a valid working folder.")
-            return {"cwd": cwd, "launched": launch}
+def _sync_flow(monkeypatch, title, texts):
+    ref = session("a", title, "C:/project")
+    bridge = ConvertBridge(ref)
+    SyncFake.linked = []
+    monkeypatch.setattr("session_bridge.sync.SyncService", SyncFake)
+    monkeypatch.setattr("session_bridge.sync_cli._ensure_worker", lambda root: {"running": True})
+    defaults = []
+    pending = list(texts)
 
-    service = Service(bridge=None)
-    monkeypatch.setattr("session_bridge.sync.SyncService", lambda *, bridge: service)
+    def ask_text(message, default="", **kwargs):
+        defaults.append(default)
+        return pending.pop(0)
+
+    monkeypatch.setattr(interactive, "_ask_text", ask_text)
+    return ref, bridge, defaults
+
+
+def test_sync_name_is_settled_before_converting_and_a_taken_name_is_asked_again(monkeypatch, capsys):
+    ref, bridge, defaults = _sync_flow(monkeypatch, "Taken name", ["taken NAME", "Mi sincronizada"])
+    _answers(monkeypatch, "codex-win", "sync", "done")
+    interactive._convert(bridge, ref, PROFILES)
+    # The taken title is not offered as the default, and the duplicate is refused before converting.
+    assert defaults == ["", "taken NAME"]
+    assert "Ya hay una conversación sincronizada con ese nombre" in capsys.readouterr().out
+    assert len(bridge.converts) == 1
+    assert SyncFake.linked == [(ref.key, "Mi sincronizada", "tr_test")]
+
+
+def test_long_title_is_not_a_default_name_and_escape_returns_to_the_summary(monkeypatch):
+    ref, bridge, defaults = _sync_flow(monkeypatch, "x" * 130, [None, ""])
+    asked = _answers(monkeypatch, "codex-win", "sync", "sync", "done")
+    interactive._convert(bridge, ref, PROFILES)
+    assert defaults == ["", ""]
+    # Esc at the name went back to the summary; nothing was written until the second choice.
+    assert [message for message, _ in asked].count("¿Qué quieres hacer?") == 2
+    assert len(bridge.converts) == 1 and SyncFake.linked == [(ref.key, None, "tr_test")]
+
+
+def test_unlinked_conversations_and_detached_sessions_are_listed_as_sessions():
+    links = [
+        {
+            "id": "ln_gone",
+            "name": "Old",
+            "state": "unlinked",
+            "unlinked": True,
+            "endpoints": [{"key": "claude-win:a"}],
+        },
+        {
+            "id": "ln_live",
+            "name": "Live",
+            "state": "synced",
+            "endpoints": [{"key": "claude-win:b", "enabled": False}, {"key": "claude-win:c"}],
+        },
+    ]
+    sessions = [
+        session("a", "Was linked", "/x"),
+        session("b", "Detached", "/x"),
+        session("c", "Followed", "/x"),
+    ]
+    labels = [item.label for item in interactive.home_choices(sessions, links, None)]
+    assert labels == ["Live", "Was linked", "Detached"]
+
+
+def test_single_pending_version_says_what_opening_it_means(monkeypatch):
+    head = {"id": "rv_one", "source_key": "codex-win:a", "reason": "append"}
+    service = LinkService(_link("waiting", [head]))
     monkeypatch.setattr("session_bridge.sync_cli._ensure_worker", lambda root: None)
-    monkeypatch.setattr(
-        interactive,
-        "_choose",
-        lambda label, values: (
-            next((value for value in values if "ln_ready" in value), values[0])
-            if label == "Conversación o nueva conversión"
-            else values[0]
-        ),
-    )
-    monkeypatch.setattr(interactive, "prompt", lambda _: "C:/existing")
+    asked = _answers(monkeypatch, "rv_one", "codex-win")
+    interactive._open_link(SimpleNamespace(data_dir="d"), service, service.link, PROFILES)
+    assert asked[0][0].startswith("El origen tiene cambios aún sin comprobar")
+    assert asked[0][1][0] == "Abrir el último turno terminado · Desde Codex · continuación"
 
-    class Bridge:
-        data_dir = "unused-in-test"
 
-        def profiles(self):
-            return [SimpleNamespace(id="windows-codex", tool="codex", enabled=True, environment="windows")]
+def test_busy_worker_while_checking_a_link_returns_to_the_search(monkeypatch, capsys):
+    service = LinkService(_link("synced"))
 
-    assert interactive.run_home(Bridge()) == {"cwd": "C:/existing", "launched": True}
-    assert service.opens == [
-        ("ln_ready", "windows-codex", None, None, True),
-        ("ln_ready", "windows-codex", None, "C:/existing", True),
-    ]
+    def busy(link, *, force):
+        raise BridgeError("sync_busy", "busy")
 
-    service.opens.clear()
-    monkeypatch.setattr(interactive, "prompt", lambda _: "")
-    assert interactive.run_home(Bridge()) == {"cancelled": True}
-    assert service.opens == [("ln_ready", "windows-codex", None, None, True)]
+    service.poll = busy
+    assert interactive._open_link(SimpleNamespace(), service, service.link, PROFILES) is interactive.BACK
+    assert "vuelve a intentarlo" in capsys.readouterr().out
+
+
+def test_escape_in_a_text_prompt_goes_back_and_enter_keeps_the_default():
+    assert keys(ESC, lambda: interactive._ask_text("Nombre: ", "Mi tarea")) is None
+    assert keys("\r", lambda: interactive._ask_text("Nombre: ", "Mi tarea")) == "Mi tarea"
+
+
+def test_no_color_reaches_every_prompt_but_not_launched_assistants(monkeypatch):
+    import io
+    import os
+
+    from prompt_toolkit.application import get_app_session
+    from prompt_toolkit.data_structures import Size
+    from prompt_toolkit.output import ColorDepth
+    from prompt_toolkit.output.vt100 import Vt100_Output
+
+    from session_bridge import cli
+
+    def terminal_output():
+        # Like prompt_toolkit's own create_output: the depth is fixed from the environment now.
+        return Vt100_Output(
+            io.StringIO(), lambda: Size(24, 80), term="xterm", default_color_depth=ColorDepth.from_env()
+        )
+
+    monkeypatch.setattr(interactive, "create_output", terminal_output)
+    monkeypatch.delenv("PROMPT_TOOLKIT_COLOR_DEPTH", raising=False)
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    seen = {}
+
+    def pick(choices, **options):
+        seen["depth"] = get_app_session().output.get_default_color_depth()
+        seen["environment"] = os.environ.get("PROMPT_TOOLKIT_COLOR_DEPTH")
+        return None, ""
+
+    monkeypatch.setattr(interactive, "pick", pick)
+    bridge = _home(monkeypatch, [session("a", "One", "/x")])
+    monkeypatch.setitem(cli._state, "no_color", True)
+    interactive.run_home(bridge, cwd="/x")
+    # Every prompt in the flow draws without colour, and nothing a child process inherits changed.
+    assert seen == {"depth": ColorDepth.DEPTH_1_BIT, "environment": None}
+    assert "PROMPT_TOOLKIT_COLOR_DEPTH" not in os.environ

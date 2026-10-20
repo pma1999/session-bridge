@@ -54,6 +54,7 @@ def discover(profile):
                     "cli_version",
                     "history_mode",
                     "thread_source",
+                    "source",
                 )
                 if k in cols
             ]
@@ -72,6 +73,12 @@ def discover(profile):
                     locator=value.get("rollout_path") or "",
                     metadata={"history_mode": value.get("history_mode", "legacy")},
                 )
+                # Codex records helper threads (spawned agents, guardian reviews) as their own rows.
+                source = str(value.get("source") or "")
+                if value.get("thread_source") in {"subagent", "guardian_review"} or source.startswith(
+                    '{"subagent"'
+                ):
+                    found[value["id"]].metadata["subagent"] = True
             if {"parent_thread_id", "child_thread_id"} <= columns(con, "thread_spawn_edges"):
                 for row in con.execute("SELECT parent_thread_id,child_thread_id FROM thread_spawn_edges"):
                     parents[row["child_thread_id"]] = row["parent_thread_id"]
@@ -134,6 +141,8 @@ def discover(profile):
     for key, item in found.items():
         if key in parents:
             item.parent_id = parents[key]
+            # A spawned agent, unlike a fork, is part of its parent's conversation.
+            item.metadata["spawned"] = True
     return sorted(found.values(), key=lambda r: r.updated_at or r.created_at or "", reverse=True)
 
 
