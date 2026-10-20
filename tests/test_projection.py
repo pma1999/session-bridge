@@ -32,6 +32,19 @@ def test_current_context_includes_original_summary_but_not_discarded_history():
     assert len(c.events) == 7
 
 
+def test_retained_copy_sharing_an_id_does_not_revive_the_discarded_original():
+    # Codex keeps a shortened copy of a message in its compaction under the original message id.
+    c = conversation(
+        [
+            Event(id="m", kind="message", role="user", text="long original request", active=False),
+            Event(id="s", kind="summary", role="assistant", text="compacted", active=False),
+            Event(id="m", kind="message", role="user", text="retained request"),
+            Event(id="u", kind="message", role="user", text="next"),
+        ]
+    )
+    assert [m.text for m in project(c).messages] == ["retained request", "next"]
+
+
 def test_ambiguous_context_requires_explicit_selection():
     c = conversation([Event(id="x", kind="message", role="user", text="hello")], context_ambiguous=True)
     with pytest.raises(BridgeError, match="contexto"):

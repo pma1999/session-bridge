@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from session_bridge.errors import BridgeError
@@ -32,7 +33,7 @@ def _root(profile):
 
 def discover(profile):
     base = _root(profile)
-    found, parents = {}, {}
+    found, parents, orphans = {}, {}, set()
     db = base / "state_5.sqlite"
     if db.exists():
         with database(db) as con:
@@ -100,9 +101,20 @@ def discover(profile):
                     continue
                 key = payload["id"]
                 if key in found:
-                    if not Path(found[key].locator).exists():
+                    locator = found[key].locator
+                    # Codex compresses rollouts after indexing them; a later segment continues the earlier ones.
+                    indexed = bool(locator) and (Path(locator).exists() or Path(locator + ".zst").exists())
+                    if indexed and not Path(locator).exists():
+                        found[key].locator = locator = locator + ".zst"
+                    # Without a usable index, the newest segment (its name starts with its time) wins,
+                    # whether it sits in sessions or archived_sessions.
+                    if (key not in orphans and not indexed) or (
+                        key in orphans and path.name > Path(locator).name
+                    ):
                         found[key].locator = str(path)
+                        orphans.add(key)
                     continue
+                orphans.add(key)
                 found[key] = SessionRef(
                     profile_id=profile.id,
                     native_id=key,
@@ -123,6 +135,82 @@ def discover(profile):
         if key in parents:
             item.parent_id = parents[key]
     return sorted(found.values(), key=lambda r: r.updated_at or r.created_at or "", reverse=True)
+
+
+ROLLOUT_NAME = re.compile(
+    r"-(?P<thread>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:_(?P<segment>[0-9a-f-]+))?$"
+)
+
+
+def _rollout(base, identity):
+    """The rollout file a history base names: a thread's first file, or a segment after its underscore."""
+    for directory in ("sessions", "archived_sessions"):
+        folder = base / directory
+        if not folder.exists():
+            continue
+        for path in sorted(folder.rglob("rollout-*")):
+            match = ROLLOUT_NAME.search(path.name.split(".jsonl")[0])
+            if not match or not path.name.endswith((".jsonl", ".jsonl.zst")):
+                continue
+            if identity == (match["segment"] or match["thread"]):
+                try:
+                    return scoped(path, base)
+                except BridgeError:
+                    return None
+    return None
+
+
+def _history_base(records):
+    for record in records:
+        if record.get("type") == "session_meta":
+            payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+            value = payload.get("history_base")
+            return value if isinstance(value, dict) else None
+    return None
+
+
+def _lineage(base, records):
+    """A segment or fork continues the records of its history base before the ordinal where it takes over."""
+    issues, chain, seen = [], [records], set()
+    history_base = _history_base(records)
+    while history_base:
+        source, end = history_base.get("thread_id"), history_base.get("end_ordinal_exclusive")
+        path = _rollout(base, source) if isinstance(source, str) and source not in seen else None
+        if path is None or not isinstance(end, int):
+            issues.append("source_history_base_missing")
+            return [record for part in reversed(chain) for record in part], issues, True
+        seen.add(source)
+        try:
+            # The records a base hands over are fixed; a live base that keeps growing past them is not damage.
+            earlier, found = capture(path, snapshot=True)
+        except BridgeError as exc:
+            earlier, found = [], [exc.code]
+        issues += [w for w in found if w == "source_changed_during_snapshot"]
+        found = [w for w in found if w != "source_changed_during_snapshot"]
+        ordinals = [r.get("ordinal", i) for i, r in enumerate(earlier)]
+        kept = [(n, r) for n, r in zip(ordinals, earlier, strict=True) if isinstance(n, int) and n < end]
+        chain.append([r for _, r in kept])
+        # An unreadable base, or one that stops before the ordinal the segment continues from, lost history.
+        if found or max((n for n, _ in kept), default=-1) < end - 1:
+            issues += found or ["source_history_base_incomplete"]
+            return [record for part in reversed(chain) for record in part], issues, True
+        history_base = _history_base(earlier)
+    return [record for part in reversed(chain) for record in part], issues, False
+
+
+AGENT_MESSAGE_ENCRYPTED = "[encrypted by the source provider; content unavailable]"
+
+
+def _agent_message(item, self_path):
+    """Messages between agents: this agent's own are its output, the others reach it as input."""
+    parts = []
+    for block in item.get("content") or []:
+        if isinstance(block, dict) and block.get("type") == "encrypted_content":
+            parts.append(AGENT_MESSAGE_ENCRYPTED)
+        elif isinstance(block, dict) and isinstance(block.get("text"), str):
+            parts.append(block["text"])
+    role = "assistant" if item.get("author") == self_path else "user"
+    return role, "".join(parts)
 
 
 RETAINED_ANNOTATIONS = {"verified_answer"}
@@ -201,6 +289,7 @@ def read(profile, ref, *, snapshot=False):
     related = []
     ambiguous = False
     locator = ref.locator
+    self_path = None
     state_db = base / "state_5.sqlite"
     if state_db.exists():
         with database(state_db) as con:
@@ -210,6 +299,7 @@ def read(profile, ref, *, snapshot=False):
                     raw.append({"table": "threads", "row": value})
                     # Spawn-edge refs carry no locator; the thread's own row names its rollout.
                     locator = locator or value.get("rollout_path") or ""
+                    self_path = value.get("agent_path") or self_path
             if {"parent_thread_id", "child_thread_id"} <= columns(con, "thread_spawn_edges"):
                 for edge in con.execute(
                     "SELECT parent_thread_id,child_thread_id,status FROM thread_spawn_edges WHERE parent_thread_id=?",
@@ -227,9 +317,11 @@ def read(profile, ref, *, snapshot=False):
                         )
                     )
     history_db = base / "thread_history_1.sqlite"
+    history_known = False
     if history_db.exists():
         with database(history_db) as con:
             if {"thread_id", "item_id", "item_json", "rollout_ordinal"} <= columns(con, "thread_items"):
+                history_known = True
                 for row in con.execute(
                     "SELECT * FROM thread_items WHERE thread_id=? ORDER BY rollout_ordinal,item_id",
                     (ref.native_id,),
@@ -268,13 +360,19 @@ def read(profile, ref, *, snapshot=False):
         path = Path(str(path) + ".zst")
     if path and path.exists():
         records, issues = capture(path, snapshot=snapshot)
-        warnings += issues
-        ambiguous = bool(issues)
+        # A thread outside the index names its agent in its own metadata, not in the base it continues.
+        meta = next((r.get("payload") for r in records if r.get("type") == "session_meta"), None)
+        if not self_path and isinstance(meta, dict) and isinstance(meta.get("agent_path"), str):
+            self_path = meta["agent_path"]
+        records, lineage_issues, broken = _lineage(base, records)
+        warnings += issues + lineage_issues
+        ambiguous = bool(issues) or broken
         raw.extend(records)
     elif not history:
         raise BridgeError("source_not_found", "No se encuentra el historial de la sesión Codex.")
     else:
         warnings.append("source_rollout_missing")
+    self_path = self_path or "/root"
     events = []
     response_counts = {}
     for record in records:
@@ -294,6 +392,8 @@ def read(profile, ref, *, snapshot=False):
         active = True
         if record_kind in ("response_item", "event_msg"):
             event = _event(item, "rollout-" + str(i), active=active, native=record, ordinal=ordinal)
+            if item.get("type") == "agent_message" and "author" in item:
+                event.role, event.text = _agent_message(item, self_path)
             identity = (event.role, event.text)
             if record_kind == "event_msg" and event.kind == "message" and response_counts.get(identity, 0):
                 response_counts[identity] -= 1
@@ -326,13 +426,17 @@ def read(profile, ref, *, snapshot=False):
                                 "source_record": source_record,
                                 "item": replacement_item,
                             }
-                            events.append(
-                                _event(
-                                    replacement_item,
-                                    "retained-" + str(i) + "-" + str(j),
-                                    native=native_item,
-                                )
+                            retained = _event(
+                                replacement_item,
+                                "retained-" + str(i) + "-" + str(j),
+                                native=native_item,
                             )
+                            if (
+                                replacement_item.get("type") == "agent_message"
+                                and "author" in replacement_item
+                            ):
+                                retained.role, retained.text = _agent_message(replacement_item, self_path)
+                            events.append(retained)
                     event.active = False
                 elif not event.text:
                     ambiguous = True
@@ -349,7 +453,8 @@ def read(profile, ref, *, snapshot=False):
             if any(event.kind == "summary" for event in history):
                 ambiguous = True
                 warnings.append("source_retained_context_missing")
-    if ref.metadata.get("history_mode") == "paginated" and not history:
+    # Codex resumes a thread whose history it has not projected yet from the rollout itself.
+    if ref.metadata.get("history_mode") == "paginated" and not history and not (history_known and records):
         ambiguous = True
         warnings.append("source_paginated_projection_missing")
     return finish(

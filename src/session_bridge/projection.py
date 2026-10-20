@@ -21,16 +21,17 @@ def project(conversation: Conversation, *, context="current", context_from=None)
             )
         # Explicit selection can disambiguate a native branch, but still does not revive other branches.
         selected = conversation.events[matches[0] :]
-        selected = [e for e in selected if e.active or e.id == context_from]
+        selected = [e for e in selected if e.active or e is selected[0]]
     elif context == "current":
         summaries = [i for i, e in enumerate(selected) if e.kind == "summary"]
         if summaries:
             start = summaries[-1]
-    selected_ids = {e.id for e in selected[start:]}
+    # Select events themselves: a retained copy may carry the id of the discarded original.
+    selected_ids = {id(e) for e in selected[start:]}
     fidelity = Fidelity(warnings=list(conversation.warnings))
     messages = []
     for event in conversation.events:
-        if event.id not in selected_ids or event.role in {"system", "developer"}:
+        if id(event) not in selected_ids or event.role in {"system", "developer"}:
             fidelity.archive_only.append(event.id)
             continue
         if event.kind == "tool" or event.role == "tool":

@@ -3,6 +3,7 @@ import os
 import sqlite3
 import time
 import tracemalloc
+from pathlib import Path
 
 import pytest
 
@@ -1249,6 +1250,390 @@ def test_jsonl_line_cap(tmp_path, monkeypatch):
     with pytest.raises(BridgeError) as err:
         common.capture(path)
     assert err.value.code == "source_too_large"
+
+
+def _codex_message(ordinal, role, text):
+    return {
+        "ordinal": ordinal,
+        "type": "response_item",
+        "payload": {"type": "message", "role": role, "content": [{"type": "input_text", "text": text}]},
+    }
+
+
+def test_codex_segment_continues_its_history_base(tmp_path):
+    from session_bridge.projection import project
+
+    p = profile(tmp_path, "codex")
+    tid = "01a03d64-f5d1-7ec2-b2b2-da47dae199fa"
+    day = tmp_path / ".codex/sessions/2026/08/26"
+    # A new segment names the earlier rollout and the ordinal where its own records take over.
+    jsonl(
+        day / f"rollout-2026-08-26T11-00-00-{tid}.jsonl",
+        [
+            {"ordinal": 0, "type": "session_meta", "payload": {"id": tid}},
+            _codex_message(1, "user", "first request"),
+            _codex_message(2, "assistant", "first answer"),
+            _codex_message(3, "assistant", "superseded tail"),
+        ],
+    )
+    segment = day / f"rollout-2026-08-26T12-00-00-{tid}_01a03d75-bba8-7db0-966b-16173fd2bee3.jsonl"
+    jsonl(
+        segment,
+        [
+            {
+                "ordinal": 3,
+                "type": "session_meta",
+                "payload": {"id": tid, "history_base": {"thread_id": tid, "end_ordinal_exclusive": 3}},
+            },
+            _codex_message(4, "user", "second request"),
+            _codex_message(5, "assistant", "second answer"),
+        ],
+    )
+    ref = SessionRef(profile_id=p.id, native_id=tid, tool="codex", locator=str(segment))
+    conv = codex.read(p, ref)
+    assert not conv.context_ambiguous
+    texts = [m.text for m in project(conv).messages]
+    assert texts == ["first request", "first answer", "second request", "second answer"]
+
+
+def test_codex_fork_continues_the_rollout_of_the_thread_it_forked_from(tmp_path):
+    from session_bridge.projection import project
+
+    p = profile(tmp_path, "codex")
+    source, fork = "01a067f4-4838-7ec2-9f6b-8444bb28ea64", "01a06805-0dd4-7d31-ac21-1de7ae82e33b"
+    sessions = tmp_path / ".codex/sessions/2026/09/03"
+    jsonl(
+        sessions / f"rollout-2026-09-03T17-00-00-{source}.jsonl",
+        [
+            {"ordinal": 0, "type": "session_meta", "payload": {"id": source}},
+            _codex_message(1, "user", "original request"),
+            _codex_message(2, "assistant", "original answer"),
+            _codex_message(3, "user", "only in the source thread"),
+        ],
+    )
+    path = sessions / f"rollout-2026-09-03T18-05-56-{fork}.jsonl"
+    jsonl(
+        path,
+        [
+            {
+                "ordinal": 3,
+                "type": "session_meta",
+                "payload": {"id": fork, "history_base": {"thread_id": source, "end_ordinal_exclusive": 3}},
+            },
+            _codex_message(4, "user", "forked request"),
+        ],
+    )
+    conv = codex.read(p, SessionRef(profile_id=p.id, native_id=fork, tool="codex", locator=str(path)))
+    assert not conv.context_ambiguous
+    assert [m.text for m in project(conv).messages] == [
+        "original request",
+        "original answer",
+        "forked request",
+    ]
+
+
+def test_codex_discovery_keeps_the_indexed_segment_when_it_was_compressed(tmp_path):
+    import zstandard
+
+    p = profile(tmp_path, "codex")
+    home = tmp_path / ".codex"
+    tid = "01a03d64-f5d1-7ec2-b2b2-da47dae199fa"
+    day = home / "sessions/2026/08/26"
+    jsonl(
+        day / f"rollout-2026-08-26T11-00-00-{tid}.jsonl", [{"type": "session_meta", "payload": {"id": tid}}]
+    )
+    segment = day / f"rollout-2026-08-26T12-00-00-{tid}_01a03d75-bba8-7db0-966b-16173fd2bee3.jsonl"
+    data = json.dumps({"type": "session_meta", "payload": {"id": tid}}) + "\n"
+    Path(str(segment) + ".zst").write_bytes(zstandard.ZstdCompressor().compress(data.encode()))
+    c = sqlite3.connect(home / "state_5.sqlite")
+    c.execute("create table threads(id text,rollout_path text)")
+    # Codex compresses older rollouts after indexing them under their uncompressed name.
+    c.execute("insert into threads values(?,?)", (tid, str(segment)))
+    c.commit()
+    c.close()
+    (ref,) = codex.discover(p)
+    assert ref.locator == str(segment) + ".zst"
+
+
+def test_codex_segment_with_missing_base_is_ambiguous(tmp_path):
+    p = profile(tmp_path, "codex")
+    tid = "01a03d64-f5d1-7ec2-b2b2-da47dae199fa"
+    segment = tmp_path / f".codex/sessions/rollout-x-{tid}_01a03d75-bba8-7db0-966b-16173fd2bee3.jsonl"
+    jsonl(
+        segment,
+        [
+            {
+                "ordinal": 3,
+                "type": "session_meta",
+                "payload": {"id": tid, "history_base": {"thread_id": tid, "end_ordinal_exclusive": 3}},
+            },
+            _codex_message(4, "user", "second request"),
+        ],
+    )
+    conv = codex.read(p, SessionRef(profile_id=p.id, native_id=tid, tool="codex", locator=str(segment)))
+    assert conv.context_ambiguous
+
+
+def test_codex_agent_messages_are_input_unless_this_agent_wrote_them(tmp_path):
+    from session_bridge.projection import project
+
+    p = profile(tmp_path, "codex")
+    path = tmp_path / ".codex/sessions/s.jsonl"
+
+    def agent_message(ordinal, author, recipient, blocks):
+        return {
+            "ordinal": ordinal,
+            "type": "response_item",
+            "payload": {"type": "agent_message", "author": author, "recipient": recipient, "content": blocks},
+        }
+
+    header = "Message Type: MESSAGE\nTask name: /root\nSender: /root/worker\nPayload:\n"
+    jsonl(
+        path,
+        [
+            {"type": "session_meta", "payload": {"id": "s"}},
+            _codex_message(1, "user", "delegate it"),
+            agent_message(
+                2,
+                "/root",
+                "/root/worker",
+                [{"type": "input_text", "text": "Message Type: NEW_TASK\nPayload:\ndo the work"}],
+            ),
+            agent_message(
+                3,
+                "/root/worker",
+                "/root",
+                [
+                    {"type": "input_text", "text": header},
+                    {"type": "encrypted_content", "encrypted_content": "gAAA"},
+                ],
+            ),
+            agent_message(
+                4,
+                "/root/worker",
+                "/root",
+                [{"type": "input_text", "text": "Message Type: FINAL_ANSWER\nPayload: done"}],
+            ),
+        ],
+    )
+    conv = codex.read(p, SessionRef(profile_id=p.id, native_id="s", tool="codex", locator=str(path)))
+    messages = [(m.role, m.text) for m in project(conv).messages]
+    assert messages[1] == ("assistant", "Message Type: NEW_TASK\nPayload:\ndo the work")
+    # The payload the source provider encrypted cannot be read by another model; say so instead of hiding it.
+    assert messages[2][0] == "user" and messages[2][1].startswith(header)
+    assert "[encrypted by the source provider; content unavailable]" in messages[2][1]
+    assert messages[3] == ("user", "Message Type: FINAL_ANSWER\nPayload: done")
+
+
+def test_codex_paginated_thread_without_projected_rows_resumes_from_its_rollout(tmp_path):
+    p = profile(tmp_path, "codex")
+    home = tmp_path / ".codex"
+    path = home / "sessions/s.jsonl"
+    jsonl(path, [{"type": "session_meta", "payload": {"id": "s"}}, _codex_message(1, "user", "hello")])
+    # Codex has not projected this thread's history yet; it resumes it from the rollout.
+    c = sqlite3.connect(home / "thread_history_1.sqlite")
+    c.execute(
+        "create table thread_items(thread_id text,turn_id text,item_id text,rollout_ordinal int,item_json text,item_type text,updated_at_ordinal int)"
+    )
+    c.close()
+    ref = SessionRef(
+        profile_id=p.id,
+        native_id="s",
+        tool="codex",
+        locator=str(path),
+        metadata={"history_mode": "paginated"},
+    )
+    conv = codex.read(p, ref)
+    assert not conv.context_ambiguous
+    assert [e.text for e in conv.events if e.active and e.kind == "message"] == ["hello"]
+
+
+def test_codex_compaction_keeps_agent_message_roles_for_an_unindexed_subagent(tmp_path):
+    from session_bridge.projection import project
+
+    p = profile(tmp_path, "codex")
+    path = tmp_path / ".codex/sessions/child.jsonl"
+    task = {
+        "type": "agent_message",
+        "author": "/root",
+        "recipient": "/root/worker",
+        "content": [
+            {"type": "input_text", "text": "Message Type: NEW_TASK\n"},
+            {"type": "encrypted_content", "encrypted_content": "gAAA"},
+        ],
+    }
+    own = {**task, "author": "/root/worker", "recipient": "/root"}
+    own["content"] = [{"type": "input_text", "text": "progress report"}]
+    jsonl(
+        path,
+        [
+            # No index row: the subagent names its own path in its metadata.
+            {"type": "session_meta", "payload": {"id": "child", "agent_path": "/root/worker"}},
+            {"type": "response_item", "payload": task},
+            {"type": "response_item", "payload": own},
+            {"type": "compacted", "payload": {"message": "", "replacement_history": [task, own]}},
+        ],
+    )
+    conv = codex.read(p, SessionRef(profile_id=p.id, native_id="child", tool="codex", locator=str(path)))
+    assert [(m.role, m.text) for m in project(conv).messages] == [
+        ("user", "Message Type: NEW_TASK\n[encrypted by the source provider; content unavailable]"),
+        ("assistant", "progress report"),
+    ]
+
+
+def _codex_segment(tmp_path, tid, base_records, end):
+    day = tmp_path / ".codex/sessions/2026/08/26"
+    if base_records is not None:
+        jsonl(day / f"rollout-2026-08-26T11-00-00-{tid}.jsonl", base_records)
+    segment = day / f"rollout-2026-08-26T12-00-00-{tid}_01a03d75-bba8-7db0-966b-16173fd2bee3.jsonl"
+    jsonl(
+        segment,
+        [
+            {
+                "ordinal": end,
+                "type": "session_meta",
+                "payload": {"id": tid, "history_base": {"thread_id": tid, "end_ordinal_exclusive": end}},
+            },
+            _codex_message(end + 1, "user", "second request"),
+        ],
+    )
+    return day, segment
+
+
+@pytest.mark.parametrize("damage", ["short", "invalid_line", "corrupt_zst"])
+def test_codex_segment_with_damaged_base_is_ambiguous(tmp_path, damage):
+    p = profile(tmp_path, "codex")
+    tid = "01a03d64-f5d1-7ec2-b2b2-da47dae199fa"
+    base = [
+        {"ordinal": 0, "type": "session_meta", "payload": {"id": tid}},
+        _codex_message(1, "user", "first"),
+    ]
+    # The segment continues from ordinal 3, so the base must reach ordinal 2.
+    day, segment = _codex_segment(tmp_path, tid, base if damage == "short" else None, 3)
+    first = day / f"rollout-2026-08-26T11-00-00-{tid}.jsonl"
+    if damage == "invalid_line":
+        lines = [json.dumps(r) for r in base + [_codex_message(2, "assistant", "first answer")]]
+        first.write_text(
+            "\n".join(lines[:2] + ['{"ordinal": 3, "type"'] + lines[2:]) + "\n", encoding="utf-8"
+        )
+    elif damage == "corrupt_zst":
+        first.parent.mkdir(parents=True, exist_ok=True)
+        Path(str(first) + ".zst").write_bytes(b"\x28\xb5\x2f\xfd not zstd")
+    conv = codex.read(p, SessionRef(profile_id=p.id, native_id=tid, tool="codex", locator=str(segment)))
+    assert conv.context_ambiguous
+
+
+def test_codex_base_still_growing_past_the_handed_over_records_is_not_ambiguous(tmp_path, monkeypatch):
+    p = profile(tmp_path, "codex")
+    tid = "01a03d64-f5d1-7ec2-b2b2-da47dae199fa"
+    base = [
+        {"ordinal": 0, "type": "session_meta", "payload": {"id": tid}},
+        _codex_message(1, "user", "first"),
+    ]
+    day, segment = _codex_segment(tmp_path, tid, base, 2)
+    real = codex.capture
+
+    def growing(path, *, snapshot=False):
+        records, warnings = real(path, snapshot=snapshot)
+        # The fork's source thread is still being written past the records it handed over.
+        return records, warnings + (["source_changed_during_snapshot"] if "_" not in path.name else [])
+
+    monkeypatch.setattr(codex, "capture", growing)
+    conv = codex.read(p, SessionRef(profile_id=p.id, native_id=tid, tool="codex", locator=str(segment)))
+    assert not conv.context_ambiguous
+    assert "source_changed_during_snapshot" in conv.warnings
+
+
+@pytest.mark.parametrize("identity", ["", "a", "7ec2-b2b2-da47dae199fa"])
+def test_codex_history_base_identity_matches_only_a_whole_rollout_name(tmp_path, identity):
+    p = profile(tmp_path, "codex")
+    other = "01a03d64-f5d1-7ec2-b2b2-da47dae199fa"
+    sessions = tmp_path / ".codex/sessions"
+    jsonl(sessions / f"rollout-2026-08-26T10-00-00-{other}.jsonl", [_codex_message(0, "user", "FOREIGN")])
+    path = sessions / "rollout-2026-08-26T11-00-00-01a06805-0dd4-7d31-ac21-1de7ae82e33b.jsonl"
+    jsonl(
+        path,
+        [
+            {
+                "ordinal": 1,
+                "type": "session_meta",
+                "payload": {"id": "s", "history_base": {"thread_id": identity, "end_ordinal_exclusive": 1}},
+            },
+            _codex_message(2, "user", "mine"),
+        ],
+    )
+    conv = codex.read(p, SessionRef(profile_id=p.id, native_id="s", tool="codex", locator=str(path)))
+    assert conv.context_ambiguous
+    assert "FOREIGN" not in [e.text for e in conv.events]
+
+
+def test_codex_history_base_chain_follows_every_segment_and_stops_at_a_cycle(tmp_path):
+    from session_bridge.projection import project
+
+    p = profile(tmp_path, "codex")
+    tid, mid = "01a03d64-f5d1-7ec2-b2b2-da47dae199fa", "01a03d70-0000-7000-8000-000000000001"
+    day = tmp_path / ".codex/sessions/2026/08/26"
+    jsonl(
+        day / f"rollout-2026-08-26T10-00-00-{tid}.jsonl",
+        [{"ordinal": 0, "type": "session_meta", "payload": {"id": tid}}, _codex_message(1, "user", "one")],
+    )
+    jsonl(
+        day / f"rollout-2026-08-26T11-00-00-{tid}_{mid}.jsonl",
+        [
+            {
+                "ordinal": 2,
+                "type": "session_meta",
+                "payload": {"id": tid, "history_base": {"thread_id": tid, "end_ordinal_exclusive": 2}},
+            },
+            _codex_message(3, "user", "two"),
+        ],
+    )
+    last = day / f"rollout-2026-08-26T12-00-00-{tid}_01a03d75-bba8-7db0-966b-16173fd2bee3.jsonl"
+    meta = {"ordinal": 4, "type": "session_meta"}
+    jsonl(
+        last,
+        [{**meta, "payload": {"id": tid, "history_base": {"thread_id": mid, "end_ordinal_exclusive": 4}}}],
+    )
+    with last.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(_codex_message(5, "user", "three")) + "\n")
+    ref = SessionRef(profile_id=p.id, native_id=tid, tool="codex", locator=str(last))
+    conv = codex.read(p, ref)
+    assert not conv.context_ambiguous
+    assert [m.text for m in project(conv).messages] == ["one", "two", "three"]
+    # A base that names itself would loop forever; it is reported instead.
+    jsonl(
+        last,
+        [
+            {
+                **meta,
+                "payload": {
+                    "id": tid,
+                    "history_base": {
+                        "thread_id": "01a03d75-bba8-7db0-966b-16173fd2bee3",
+                        "end_ordinal_exclusive": 4,
+                    },
+                },
+            }
+        ],
+    )
+    looped = codex.read(p, ref)
+    assert looped.context_ambiguous
+
+
+def test_codex_discovery_of_an_unindexed_thread_uses_its_newest_segment(tmp_path):
+    p = profile(tmp_path, "codex")
+    home = tmp_path / ".codex"
+    tid = "01a03d64-f5d1-7ec2-b2b2-da47dae199fa"
+    meta = [{"type": "session_meta", "payload": {"id": tid}}]
+    newest = (
+        home
+        / f"sessions/2026/08/27/rollout-2026-08-27T09-00-00-{tid}_01a03d75-bba8-7db0-966b-16173fd2bee3.jsonl"
+    )
+    jsonl(newest, meta)
+    # The thread's first file was archived; it sorts after sessions but is older.
+    jsonl(home / f"archived_sessions/rollout-2026-08-26T11-00-00-{tid}.jsonl", meta)
+    (ref,) = codex.discover(p)
+    assert ref.locator == str(newest)
 
 
 def test_codex_paginated_unknown_schema_preserves_rollout_and_refuses_guess(tmp_path):
