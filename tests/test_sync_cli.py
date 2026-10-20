@@ -134,15 +134,36 @@ def test_convert_sync_dry_run_has_no_link_worker_or_data_write(monkeypatch, tmp_
     monkeypatch.setitem(cli._state, "json", True)
     result = CliRunner().invoke(
         cli.app,
-        ["--json", "convert", "codex:thread-1", "--to", "claude-win", "--sync", "--sync-name", "Daily", "--dry-run"],
+        [
+            "--json",
+            "convert",
+            "codex:thread-1",
+            "--to",
+            "claude-win",
+            "--sync",
+            "--sync-name",
+            "Daily",
+            "--dry-run",
+        ],
     )
 
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["data"] == {"preview": True}
-    assert calls == [("preview", "codex:thread-1", "claude-win", {
-        "cwd": None, "context": "current", "context_from": None, "snapshot": False,
-        "mode": "native", "model": None,
-    })]
+    assert calls == [
+        (
+            "preview",
+            "codex:thread-1",
+            "claude-win",
+            {
+                "cwd": None,
+                "context": "current",
+                "context_from": None,
+                "snapshot": False,
+                "mode": "native",
+                "model": None,
+            },
+        )
+    ]
     assert list(Path(tmp_path).iterdir()) == []
 
 
@@ -155,7 +176,9 @@ def test_convert_refuses_sync_handoff_and_sync_name_without_sync(monkeypatch):
             pytest.fail("invalid sync options reached conversion")
 
     monkeypatch.setattr(cli, "_bridge", lambda: Bridge())
-    monkeypatch.setattr(sync_cli, "_ensure_worker", lambda *args: pytest.fail("invalid sync option started worker"))
+    monkeypatch.setattr(
+        sync_cli, "_ensure_worker", lambda *args: pytest.fail("invalid sync option started worker")
+    )
 
     for args in (
         ["--json", "convert", "codex:thread-1", "--to", "claude-win", "--mode", "handoff", "--sync"],
@@ -198,12 +221,27 @@ def test_convert_sync_links_exact_transfer_and_resume_opens_link_through_service
     worker_calls = []
     monkeypatch.setattr(cli, "_bridge", lambda: fake_bridge)
     monkeypatch.setattr("session_bridge.sync.SyncService", Service)
-    monkeypatch.setattr(sync_cli, "_ensure_worker", lambda root: worker_calls.append(root) or {"running": True})
+    monkeypatch.setattr(
+        sync_cli, "_ensure_worker", lambda root: worker_calls.append(root) or {"running": True}
+    )
     monkeypatch.setattr(sync_cli, "_launch_allowed", lambda: False)
     result = CliRunner().invoke(
         cli.app,
-        ["--json", "convert", "codex:thread-1", "--to", "claude-win", "--sync", "--sync-name", "Daily",
-         "--resume", "--cwd", "C:/work", "--model", "chosen"],
+        [
+            "--json",
+            "convert",
+            "codex:thread-1",
+            "--to",
+            "claude-win",
+            "--sync",
+            "--sync-name",
+            "Daily",
+            "--resume",
+            "--cwd",
+            "C:/work",
+            "--model",
+            "chosen",
+        ],
     )
 
     assert result.exit_code == 0, result.output
@@ -247,7 +285,9 @@ def test_resume_routes_exact_linked_key_through_sync_only_with_store_and_non_tty
     worker_calls = []
     monkeypatch.setattr(cli, "_bridge", lambda: bridge)
     monkeypatch.setattr("session_bridge.sync.SyncService", Service)
-    monkeypatch.setattr(sync_cli, "_ensure_worker", lambda root: worker_calls.append(root) or {"running": True})
+    monkeypatch.setattr(
+        sync_cli, "_ensure_worker", lambda root: worker_calls.append(root) or {"running": True}
+    )
     result = CliRunner().invoke(cli.app, ["--json", "resume", "codex:exact-native-id"])
 
     assert result.exit_code == 0, result.output
@@ -270,7 +310,9 @@ def test_resume_keeps_unlinked_oneoff_on_bridge_and_does_not_start_worker(monkey
             return {"mode": "native", "argv": ["codex", "resume", key], "launched": launch}
 
     monkeypatch.setattr(cli, "_bridge", lambda: Bridge(data_dir))
-    monkeypatch.setattr("session_bridge.sync.SyncService", lambda **kwargs: pytest.fail("no sync store exists"))
+    monkeypatch.setattr(
+        "session_bridge.sync.SyncService", lambda **kwargs: pytest.fail("no sync store exists")
+    )
     monkeypatch.setattr(sync_cli, "_ensure_worker", lambda *args: pytest.fail("one-off started worker"))
     result = CliRunner().invoke(cli.app, ["--json", "resume", "codex:oneoff-id"])
 

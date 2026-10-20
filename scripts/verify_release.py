@@ -122,11 +122,11 @@ def verify(root: Path) -> dict:
             require(license_path in wheel_names, "Missing LICENSE in wheel")
             require(package.read(license_path) == (root / "LICENSE").read_bytes(), "Wheel license differs")
             python_sources = list((root / "src/session_bridge").rglob("*.py"))
-            expected_members = {
-                source.relative_to(root / "src").as_posix() for source in python_sources
-            } | {info + "/" + name for name in ("METADATA", "WHEEL", "entry_points.txt", "RECORD")} | {
-                license_path
-            }
+            expected_members = (
+                {source.relative_to(root / "src").as_posix() for source in python_sources}
+                | {info + "/" + name for name in ("METADATA", "WHEEL", "entry_points.txt", "RECORD")}
+                | {license_path}
+            )
             lock = root / "requirements.lock"
             if lock.is_file():
                 resource = "session_bridge/resources/requirements.lock"
