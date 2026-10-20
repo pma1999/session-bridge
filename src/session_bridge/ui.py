@@ -11,7 +11,7 @@ TOOL_NAMES = {"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode"}
 LINK_STATES = {
     "synced": "Al día",
     "waiting": "Esperando un turno terminado",
-    "conflict": "Hay ramas pendientes de elegir",
+    "conflict": "Varias continuaciones",
     "paused": "En pausa",
     "unlinked": "Desvinculada; historial conservado",
     "error": "No se puede comprobar el origen",
@@ -103,3 +103,47 @@ def folder_name(value: str) -> str:
         return ""
     path = PureWindowsPath(value) if "\\" in value or ":" in value[:3] else PurePosixPath(value)
     return visible(path.name or value)
+
+
+# ---------------------------------------------------------------------------
+# Synchronized conversations
+
+
+def link_state(link: dict) -> str:
+    if link.get("state") == "conflict":
+        return "Dos continuaciones" if len(link.get("heads") or []) <= 2 else "Varias continuaciones"
+    state = link.get("state", "")
+    return LINK_STATES.get(state, visible(state))
+
+
+def _endpoint(link: dict, key: str) -> dict | None:
+    return next((item for item in link.get("endpoints") or [] if item.get("key") == key), None)
+
+
+def endpoint_tool(link: dict, endpoint: dict | None, key: str = "") -> str:
+    """The assistant's name for an endpoint, falling back to its profile ID."""
+    tool = (endpoint or {}).get("tool")
+    return tool_name(tool) if tool else visible((key or (endpoint or {}).get("key", "")).split(":", 1)[0])
+
+
+def head_origin(head: dict, link: dict) -> str:
+    """Where a continuation was typed: an assistant, its original session, or an earlier copy."""
+    key = str(head.get("source_key", ""))
+    endpoint = _endpoint(link, key)
+    name = endpoint_tool(link, endpoint, key)
+    if endpoint and endpoint.get("role") == "superseded":
+        if endpoint.get("origin") == "original":
+            return f"la conversación original de {name}"
+        return f"una copia anterior de {name}"
+    return name
+
+
+def chosen_head(link: dict) -> dict | None:
+    """The continuation that opening follows: the selected one, or the only one."""
+    heads = link.get("heads") or []
+    selected = next((head for head in heads if head.get("id") == link.get("selected_head")), None)
+    return selected or (heads[0] if len(heads) == 1 else None)
+
+
+def capitalized(text: str) -> str:
+    return text[:1].upper() + text[1:]

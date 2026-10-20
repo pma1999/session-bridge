@@ -23,19 +23,38 @@ source and its exact archived context. It never guesses that independently exist
 together. Source arguments must use the complete `PROFILE:SESSION_ID` identity.
 
 Run `sessionbridge` in a terminal for searchable keyboard selection of linked conversations, target
-tool and any required branch. In interactive text mode, opening launches the exact native session
+tool and, when you continued in more than one place, which continuation to follow. In interactive text mode, opening launches the exact native session
 without sending a message or granting permissions. JSON/noninteractive mode returns the exact
 `argv` and environment instead of launching a client. `--model` selects a destination model only
 when supported by its existing adapter; synchronization itself performs no inference.
 
-`sync open` reconciles linked sources first. It reuses a verified destination already at that
-revision, folder and model. Otherwise it creates a **new** native session with the current context,
-archives its full source capture and records the mapping. An old destination is never rewritten.
+`sync open` reconciles linked sources first. Each assistant then has **one current session** for
+the conversation: the one Session Bridge opened or created for it last.
+
+- If a session of that assistant is already at the chosen revision, in the same folder and with
+  the same model, it is reopened as it is. This includes your original session: going back to
+  the assistant you started in with no new turns elsewhere reopens that session.
+- Otherwise a **new** native session is created with the current context. Its full source capture
+  is archived, the mapping is recorded, and it becomes that assistant's current session.
+- The previous session stays exactly as it was and becomes an **earlier session**. It is still
+  watched: if you type in it, for example in a tab you left open, that work is captured as its own
+  continuation and you are asked which one to follow. It is checked when its own file changes and
+  fully at least every five minutes, so activity elsewhere in a shared database does not re-read it.
+- Before opening, the interactive flow says which of the two will happen.
+
 `--new-copy` explicitly creates a further copy while retaining old mappings and uncertain attempts.
 Use it deliberately, rather than as a blind response to an uncertain import.
 
-The logical conversation name stays the same; native IDs can change. Use Session Bridge to open
-the latest revision. A native tab already open on an older ID does not refresh or switch itself.
+**Why a new session instead of updating the old one.** None of the supported clients offers a way to
+add turns to an existing session, and none lets another program tell whether a session is loaded in
+a running client: the desktop apps serve every conversation from one process. Writing into a session
+a client has open would leave history its model never saw, or split its record chain, silently. An
+open tab would not show the new turns either, because clients do not reload a loaded session from
+disk. Native sessions are therefore never rewritten; the verified compatibility covers new sessions.
+
+The logical conversation name stays the same; native IDs change. Use Session Bridge to switch
+assistants: it always opens the current session. A native tab already open on an earlier session
+does not refresh or switch itself; continue in the session that opened.
 `sessionbridge resume` also follows a linked session when given its **exact qualified session ID**
 or exact transfer ID. Abbreviated/ambiguous identifiers retain the ordinary one-off behavior.
 
@@ -71,16 +90,23 @@ compatibility verification before writing destinations.
 sessionbridge sync list
 sessionbridge sync status "My project"
 sessionbridge sync check "My project"
+sessionbridge sync select "My project" claude-win
 sessionbridge sync select "My project" rv_REVISION_ID
-sessionbridge sync open "My project" --to claude-win --branch rv_REVISION_ID
+sessionbridge sync open "My project" --to codex-win --branch rv_REVISION_ID
 ```
 
-Continuing two native copies from the same revision produces separate retained heads. There is no
-automatic merge and no last-writer-wins overwrite. `sync select` chooses the head to follow without
-deleting other branches. A new continuation from a stale copy again requires an explicit choice.
-`--branch` selects an existing head for this open only; it also explicitly accepts opening that
-verified snapshot while another source has a pending turn or an error. Status shows head IDs,
-origin, reason, selected head and endpoint health without conversation bodies.
+Continuing two native sessions from the same revision produces separate retained heads, called
+continuations. There is no automatic merge and no last-writer-wins overwrite. The interactive flow
+shows where each was typed (an assistant, its original session or an earlier copy), how long ago,
+and its last request, and remembers your choice. `sync select` does the same from the command line,
+taking a version ID prefix or the profile of the assistant you continued in, when that assistant has
+one continuation (`sync select "My project" claude-win`). Other continuations are kept. New turns in
+a continuation that was not chosen, or a new continuation from an earlier session, ask again.
+`--branch` takes the same values and selects a head for one open only; it also explicitly accepts
+opening that verified snapshot while another source has a pending turn or an error. Status shows
+each assistant's current session and how many earlier ones it has, head IDs, origin, reason, the
+selected head and endpoint health, without conversation bodies. In JSON, each endpoint also carries
+`tool`, `role` (`current`, `superseded` or `detached`) and `origin` (`original` or `copy`).
 
 States are `synced`, `waiting`, `conflict`, `error`, `paused` and `unlinked`. `synced` means the
 last observed completed histories have a selected or unique head; it does not claim every native

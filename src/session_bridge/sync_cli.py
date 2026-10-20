@@ -82,7 +82,9 @@ def check(link: str | None = typer.Argument(None, help="Vínculo; omitido compru
 def open_link(
     link: str = typer.Argument(...),
     target: str = typer.Option(..., "--to", help="Perfil nativo de destino."),
-    branch: str | None = typer.Option(None, "--branch", help="Revisión elegida si hay ramas."),
+    branch: str | None = typer.Option(
+        None, "--branch", help="Continuación a abrir si hay varias: versión o perfil del asistente."
+    ),
     cwd: str | None = typer.Option(None, "--cwd", help="Carpeta de trabajo del asistente."),
     model: str | None = typer.Option(None, "--model", help="Modelo del asistente al abrirse."),
     new_copy: bool = typer.Option(
@@ -98,8 +100,13 @@ def open_link(
 
 
 @sync_app.command("select")
-def select(link: str = typer.Argument(...), revision: str = typer.Argument(...)) -> None:
-    """Elige explícitamente la rama que continuará la conversación."""
+def select(
+    link: str = typer.Argument(...),
+    revision: str = typer.Argument(
+        ..., help="Versión (o su inicio) o perfil del asistente donde continuaste, p. ej. claude-win."
+    ),
+) -> None:
+    """Elige con qué continuación seguir; las demás se conservan."""
     _emit(_service().select(link, revision))
 
 
@@ -131,7 +138,9 @@ def unlink(link: str = typer.Argument(...)) -> None:
 def export(
     link: str = typer.Argument(...),
     output: Path = typer.Option(..., "--output", help="Paquete de salida nuevo."),
-    branch: str | None = typer.Option(None, "--branch"),
+    branch: str | None = typer.Option(
+        None, "--branch", help="Continuación a exportar si hay varias: versión o perfil."
+    ),
 ) -> None:
     """Exporta una revisión a un paquete portable."""
     _emit(_service().export(link, output, branch=branch))

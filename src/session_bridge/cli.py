@@ -110,31 +110,53 @@ def _rows(rows: list[tuple[str, str]]) -> None:
 
 
 def _emit_link(value: dict) -> None:
-    state = ui.LINK_STATES.get(value["state"], _visible(value["state"]))
-    _console_out.print(f"● {_visible(value['name'])}  ·  {state}", style="bold")
+    _console_out.print(f"● {_visible(value['name'])}  ·  {ui.link_state(value)}", style="bold")
     rows = [("ID", _visible(value["id"]))]
-    for endpoint in value["endpoints"]:
-        detail = _visible(endpoint.get("key", ""))
-        if endpoint.get("state") and endpoint.get("state") != "synced":
+    endpoints = [endpoint for endpoint in value["endpoints"] if endpoint.get("enabled", True)]
+    current = [endpoint for endpoint in endpoints if endpoint.get("role", "current") == "current"]
+    names = [ui.endpoint_tool(value, endpoint) for endpoint in current]
+    for endpoint, name in zip(current, names, strict=True):
+        if names.count(name) > 1:
+            name += f" ({_visible(endpoint.get('profile_id', ''))})"
+        native_id = str(endpoint.get("key", "")).split(":", 1)[-1]
+        detail = f"sesión actual {_visible(native_id)}"
+        if endpoint.get("state") not in {None, "synced"}:
             detail += f" ({_visible(endpoint['state'])})"
-        rows.append(("Sesión", detail))
+        earlier = sum(
+            1
+            for other in endpoints
+            if other.get("role") == "superseded" and other.get("profile_id") == endpoint.get("profile_id")
+        )
+        if earlier:
+            detail += f" · +{earlier} {'sesión anterior' if earlier == 1 else 'sesiones anteriores'}"
+        rows.append((name, detail))
     for head in value["heads"]:
         chosen = " · elegida" if head["id"] == value.get("selected_head") else ""
-        when = ui.relative_time(head.get("created_at"))
+        parts = [_visible(head["id"][:12]), "desde " + ui.head_origin(head, value)]
+        parts.append(ui.relative_time(head.get("created_at")))
         # sync select accepts a unique prefix, so the short form is enough to type.
-        source = _visible(str(head.get("source_key", "")).split(":", 1)[0])
-        rows.append(("Versión", f"{_visible(head['id'][:12])} · desde {source} · {when}{chosen}"))
+        rows.append(("Versión", " · ".join(part for part in parts if part) + chosen))
     if value.get("last_error"):
         rows.append(("Diagnóstico", _visible(value["last_error"])))
     if value.get("worker"):
         rows.append(("Seguimiento", "en marcha" if value["worker"].get("running") else "detenido"))
     _rows(rows)
     if value["state"] == "conflict":
+        sources = [str(head.get("source_key", "")).split(":", 1)[0] for head in value["heads"]]
+        # The assistant names a continuation when it has only one; otherwise its version does.
+        choices = [
+            source if sources.count(source) == 1 else head["id"][:12]
+            for source, head in zip(sources, value["heads"], strict=True)
+        ]
         _console_out.print(
-            f"Elige una versión con: sessionbridge sync select {_visible(value['id'])} VERSIÓN "
-            "(las demás se conservan).",
+            "Seguiste en más de un sitio. Abre sessionbridge para elegir con qué continuar, o usa:",
             style="dim",
         )
+        for source in choices:
+            _console_out.print(
+                f"  sessionbridge sync select {_visible(value['id'])} {_visible(source)}", style="dim"
+            )
+        _console_out.print("Las demás continuaciones se conservan.", style="dim")
     elif value.get("last_error"):
         _console_out.print("Comprueba el origen con: sessionbridge sync check", style="dim")
 

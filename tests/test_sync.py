@@ -98,6 +98,18 @@ def world(tmp_path, monkeypatch):
 
     def resume(key, launch=True):
         resumes.append((key, launch))
+        if ":" in key and not key.startswith("tr_"):
+            # A linked native session reopened by its own key, as Bridge.resume resolves it.
+            profile, native_id = key.split(":", 1)
+            return {
+                "mode": "native",
+                "native_id": native_id,
+                "profile": profile,
+                "cwd": conversations[key].source.cwd,
+                "argv": ["fake.exe", "resume", native_id],
+                "env": {},
+                "launched": launch,
+            }
         transfer = bridge.store.get(key)
         return {
             "mode": "native",
@@ -390,3 +402,231 @@ def test_interactive_launch_does_not_hold_the_sync_operation_lock(world):
 
     world.bridge.resume = resume
     assert world.service.open(link["id"], "codex", launch=True)["launched"]
+
+
+def _roles(world, link_id):
+    endpoints = world.service.status(link_id)["endpoints"]
+    return {endpoint["key"]: (endpoint["role"], endpoint["origin"]) for endpoint in endpoints}
+
+
+def _current(world, link_id):
+    endpoints = world.service.status(link_id)["endpoints"]
+    return {
+        endpoint["profile_id"]: endpoint["key"] for endpoint in endpoints if endpoint["role"] == "current"
+    }
+
+
+def test_round_trip_keeps_one_current_session_per_assistant(world):
+    original = world.seed()
+    link = world.service.link(original)
+    codex_a = "codex:" + world.service.open(link["id"], "codex", launch=False)["native_id"]
+    world.append(codex_a)
+    world.service.poll(force=True)
+    claude_b = "claude:" + world.service.open(link["id"], "claude", launch=False)["native_id"]
+    world.append(claude_b)
+    world.service.poll(force=True)
+    codex_c = "codex:" + world.service.open(link["id"], "codex", launch=False)["native_id"]
+    roles = _roles(world, link["id"])
+    assert roles == {
+        original: ("superseded", "original"),
+        codex_a: ("superseded", "copy"),
+        claude_b: ("current", "copy"),
+        codex_c: ("current", "copy"),
+    }
+    assert _current(world, link["id"]) == {"claude": claude_b, "codex": codex_c}
+
+
+def test_returning_without_new_turns_reopens_the_original_session(world):
+    original = world.seed()
+    link = world.service.link(original)
+    world.service.open(link["id"], "codex", launch=False)
+    back = world.service.open(link["id"], "claude", launch=False)
+    assert back["native_id"] == "source" and back["reused"] is True
+    assert len(world.writes) == 1
+    assert world.resumes[-1] == (original, False)
+    assert _current(world, link["id"])["claude"] == original
+
+
+def test_a_new_session_is_reported_as_not_reused(world):
+    link = world.service.link(world.seed())
+    assert world.service.open(link["id"], "codex", launch=False)["reused"] is False
+
+
+def test_turn_typed_in_an_earlier_copy_is_still_captured_as_its_own_continuation(world):
+    original = world.seed()
+    link = world.service.link(original)
+    codex_a = "codex:" + world.service.open(link["id"], "codex", launch=False)["native_id"]
+    world.append(codex_a)
+    world.service.poll(force=True)
+    world.service.open(link["id"], "claude", launch=False)
+    world.append(original, "stale tab", "stale answer")
+    world.service.poll(force=True)
+    status = world.service.status(link["id"])
+    assert status["state"] == "conflict"
+    assert {head["source_key"] for head in status["heads"]} == {original, codex_a}
+    assert _roles(world, link["id"])[original] == ("superseded", "original")
+
+
+def test_choose_a_continuation_by_assistant(world):
+    original = world.seed()
+    link = world.service.link(original)
+    opened = world.service.open(link["id"], "opencode", launch=False)
+    world.append("opencode:" + opened["native_id"], "approach A", "A done")
+    world.append(original, "approach B", "B done")
+    world.service.poll(force=True)
+    chosen = world.service.select(link["id"], "opencode")["selected_head"]
+    assert world.service.store.get_revision(chosen)["source_key"] == "opencode:" + opened["native_id"]
+
+
+def test_choosing_by_assistant_is_refused_when_it_has_two_continuations(world):
+    original = world.seed()
+    link = world.service.link(original)
+    codex_a = "codex:" + world.service.open(link["id"], "codex", launch=False)["native_id"]
+    world.append(codex_a)
+    world.service.poll(force=True)
+    claude_b = "claude:" + world.service.open(link["id"], "claude", launch=False)["native_id"]
+    world.append(original, "old tab", "old answer")
+    world.append(claude_b, "new tab", "new answer")
+    world.service.poll(force=True)
+    with pytest.raises(BridgeError) as error:
+        world.service.select(link["id"], "claude")
+    assert error.value.code == "sync_branch_required"
+
+
+def test_plan_open_says_whether_a_session_is_reused_without_writing(world):
+    original = world.seed()
+    link = world.service.link(original)
+    before = world.service.store.get_link(link["id"])
+    plan = world.service.plan_open(link["id"], "codex")
+    assert plan["reuse"] is False and plan["profile_id"] == "codex"
+    assert world.service.store.get_link(link["id"]) == before and world.writes == []
+    world.service.open(link["id"], "codex", launch=False)
+    assert world.service.plan_open(link["id"], "codex")["reuse"] is True
+    assert world.service.plan_open(link["id"], "claude")["reuse"] is True
+
+
+def test_head_previews_show_the_last_request_and_status_stays_content_free(world):
+    original = world.seed()
+    link = world.service.link(original)
+    opened = world.service.open(link["id"], "opencode", launch=False)
+    world.append("opencode:" + opened["native_id"], "approach A \x1b[31m", "A done")
+    world.append(original, "approach B", "B done")
+    world.service.poll(force=True)
+    previews = world.service.head_previews(link["id"])
+    assert sorted(previews.values()) == ["approach A \\x1b[31m", "approach B"]
+    assert "approach" not in repr(world.service.status(link["id"]))
+
+
+def _with_file(world, tool, identifier, messages):
+    home = world.project.parent / tool
+    rollout = home / "sessions" / f"rollout-{identifier}.jsonl"
+    rollout.parent.mkdir(parents=True, exist_ok=True)
+    rollout.write_text("start\n", encoding="utf-8")
+    key = tool + ":" + identifier
+    world.conversations[key] = native(tool, tool, identifier, messages, world.project, str(rollout))
+    return key, rollout, home
+
+
+def test_an_earlier_copy_is_not_reread_when_only_the_shared_database_changes(world):
+    original, rollout, home = _with_file(world, "codex", "thread", [("user", "q"), ("assistant", "a")])
+    link = world.service.link(original)
+    claude = "claude:" + world.service.open(link["id"], "claude", launch=False)["native_id"]
+    world.append(claude)
+    world.service.poll(force=True)
+    world.service.open(link["id"], "codex", launch=False)
+    world.service.poll(force=True)  # The earlier copy's own signature is now the baseline.
+    world.reads.clear()
+    (home / "state_5.sqlite").write_bytes(b"other thread activity")
+    world.service.poll(force=True)
+    assert original not in world.reads
+    rollout.write_text("start\ncontinued\n", encoding="utf-8")
+    world.service.poll(force=True)
+    assert original in world.reads
+
+
+def test_an_earlier_copy_without_its_own_file_is_reconciled_every_five_minutes(world):
+    original = world.seed("opencode", "ses_original")
+    link = world.service.link(original)
+    claude = "claude:" + world.service.open(link["id"], "claude", launch=False)["native_id"]
+    world.append(claude)
+    world.service.poll(force=True)
+    current = "opencode:" + world.service.open(link["id"], "opencode", launch=False)["native_id"]
+    world.service.poll(force=True)
+    world.reads.clear()
+    home = world.project.parent / "opencode"
+    home.mkdir(exist_ok=True)
+    (home / "opencode.db").write_bytes(b"other session activity")
+    world.service.poll()
+    assert original not in world.reads
+    assert current in world.reads
+    stored = world.service.store.get_link(link["id"])
+    next(e for e in stored["endpoints"] if e["key"] == original)["last_full_check"] -= 301
+    world.service.store.save_link(stored)
+    world.service.poll()
+    assert original in world.reads
+
+
+def test_new_turns_in_a_continuation_that_was_not_chosen_ask_for_a_choice_again(world):
+    original = world.seed()
+    link = world.service.link(original)
+    opened = "opencode:" + world.service.open(link["id"], "opencode", launch=False)["native_id"]
+    world.append(opened, "approach A", "A done")
+    world.append(original, "approach B", "B done")
+    world.service.poll(force=True)
+    world.service.select(link["id"], "opencode")
+    assert world.service.status(link["id"])["state"] == "synced"
+    world.append(original, "still typing in the old tab", "answer")
+    world.service.poll(force=True)
+    status = world.service.status(link["id"])
+    assert status["state"] == "conflict" and status["selected_head"] is None
+    # Continuing the chosen one keeps the choice.
+    world.service.select(link["id"], "opencode")
+    world.append(opened, "more A", "A again")
+    world.service.poll(force=True)
+    assert world.service.status(link["id"])["state"] == "synced"
+
+
+def _superseded_codex_with_file(world):
+    original, rollout, home = _with_file(world, "codex", "thread", [("user", "q"), ("assistant", "a")])
+    link = world.service.link(original)
+    claude = "claude:" + world.service.open(link["id"], "claude", launch=False)["native_id"]
+    world.append(claude)
+    world.service.poll(force=True)
+    world.service.open(link["id"], "codex", launch=False)
+    world.service.poll(force=True)
+    return original, rollout, link
+
+
+def test_a_failed_read_of_an_earlier_session_is_retried_by_an_explicit_check(world):
+    original, rollout, link = _superseded_codex_with_file(world)
+    saved = world.conversations.pop(original)
+    rollout.write_text("start\nchanged while unreadable\n", encoding="utf-8")
+    world.service.poll(force=True)
+    assert _roles(world, link["id"])[original][0] == "superseded"
+    assert world.service.status(link["id"])["state"] == "error"
+    world.conversations[original] = saved  # The source is readable again; its file did not change.
+    world.service.poll(force=True)
+    assert world.service.status(link["id"])["state"] == "synced"
+    assert world.service.open(link["id"], "claude", launch=False)["reused"] is True
+
+
+def test_an_earlier_session_with_its_own_file_is_still_fully_read_every_five_minutes(world):
+    original, rollout, link = _superseded_codex_with_file(world)
+    world.reads.clear()
+    world.service.poll()
+    assert original not in world.reads
+    stored = world.service.store.get_link(link["id"])
+    next(e for e in stored["endpoints"] if e["key"] == original)["last_full_check"] -= 301
+    world.service.store.save_link(stored)
+    world.service.poll()
+    assert original in world.reads
+
+
+def test_a_session_without_a_recorded_folder_is_not_reused_for_another_folder(world, tmp_path):
+    original = world.seed()
+    world.conversations[original].source.cwd = ""
+    link = world.service.link(original)
+    other = tmp_path / "elsewhere"
+    other.mkdir()
+    opened = world.service.open(link["id"], "claude", cwd=str(other), launch=False)
+    assert opened["reused"] is False and opened["native_id"] != "source"

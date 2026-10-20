@@ -9,14 +9,20 @@ from copy import deepcopy
 from pathlib import Path
 
 from .archive import write_package
+from .catalog import same_directory
 from .errors import BridgeError
 from .models import Conversation, Event, Profile, digest, utc_now
 from .projection import project
 from .service import Bridge
 from .sync_capture import checkpoint
 from .sync_store import SyncStore
+from .ui import visible
 
 RECONCILE_SECONDS = 30.0
+# Earlier sessions are watched by their own file, and fully at most this often.
+SUPERSEDED_SECONDS = 300.0
+SHARED_FILES = {"opencode.db", "state_5.sqlite", "thread_history_1.sqlite"}
+PREVIEW_CHARS = 80
 
 
 def _signature(messages):
@@ -25,6 +31,37 @@ def _signature(messages):
 
 def _projected(conversation):
     return [message.model_dump(mode="json") for message in project(conversation).messages]
+
+
+def _roles(link):
+    """Each assistant's current session is its last enabled endpoint; earlier ones are superseded.
+
+    Order is the only stored state: opening a session moves it to the end. Sessions that
+    Session Bridge created carry a transfer ID; the rest are the user's original sessions.
+    """
+    latest = {
+        endpoint["profile_id"]: endpoint["key"]
+        for endpoint in link["endpoints"]
+        if endpoint.get("enabled", True)
+    }
+    return {
+        endpoint["key"]: (
+            "detached"
+            if not endpoint.get("enabled", True)
+            else "current"
+            if latest.get(endpoint["profile_id"]) == endpoint["key"]
+            else "superseded",
+            "copy" if endpoint.get("transfer_id") else "original",
+        )
+        for endpoint in link["endpoints"]
+    }
+
+
+def _promote(link, key):
+    """Make an endpoint its assistant's current session."""
+    endpoints = link["endpoints"]
+    index = next(i for i, endpoint in enumerate(endpoints) if endpoint["key"] == key)
+    endpoints.append(endpoints.pop(index))
 
 
 class SyncService:
@@ -246,8 +283,9 @@ class SyncService:
             link["heads"] = [head for head in link["heads"] if head != parent] + [revision_id]
             if link["selected_head"] == parent and was_head:
                 link["selected_head"] = revision_id
-            elif parent and not was_head:
-                # A new continuation from a stale endpoint creates a genuine divergence.
+            elif parent:
+                # A new continuation from a stale endpoint, or new turns in a continuation that
+                # was not chosen, is fresh work elsewhere: ask again rather than ignore it.
                 link["selected_head"] = None
             endpoint["revision_id"] = revision_id
             self.store.save_link(link, db=db)
@@ -268,13 +306,17 @@ class SyncService:
             link, endpoint, conversation, _projected(closed.conversation), pending=closed.pending
         )
 
-    def _file_signature(self, endpoint):
+    def _file_signature(self, endpoint, *, own=False):
+        """Stat data for change detection; ``own`` keeps only the session's own file, if any."""
         profile = Profile.model_validate(endpoint["profile"])
         paths = []
-        if endpoint.get("locator"):
+        if endpoint.get("locator") and not (own and Path(endpoint["locator"]).name in SHARED_FILES):
             path = Path(endpoint["locator"])
             paths += [path, Path(str(path) + ".zst")]
-        if profile.tool in {"opencode", "codex"}:
+        if own:
+            if not paths:
+                return None
+        elif profile.tool in {"opencode", "codex"}:
             names = (
                 ["opencode.db"]
                 if profile.tool == "opencode"
@@ -296,18 +338,29 @@ class SyncService:
         if link["paused"] or link["unlinked"]:
             return 0, []
         changed, errors = 0, []
+        roles = _roles(link)
         for endpoint_key in [
             endpoint["key"] for endpoint in link["endpoints"] if endpoint.get("enabled", True)
         ]:
             endpoint = next(item for item in link["endpoints"] if item["key"] == endpoint_key)
             now = time.time()
-            signature = self._file_signature(endpoint)
-            if (
-                not force
-                and signature == endpoint.get("observed_signature")
-                and now - endpoint["last_full_check"] < RECONCILE_SECONDS
-            ):
-                continue
+            age = now - endpoint["last_full_check"]
+            if roles[endpoint_key][0] == "superseded":
+                # An earlier session is read when its own file changes, or every few minutes,
+                # so activity elsewhere in a shared database never re-reads it. An explicit check
+                # also reads one without a file of its own, or one whose last read failed or was
+                # pending. A turn typed in it is still captured as its own continuation.
+                signature = self._file_signature(endpoint, own=True)
+                unhealthy = bool(endpoint.get("error") or endpoint.get("pending"))
+                unchanged = not (force and (signature is None or unhealthy)) and (
+                    signature is None or signature == endpoint.get("observed_signature")
+                )
+                if age < SUPERSEDED_SECONDS and unchanged:
+                    continue
+            else:
+                signature = self._file_signature(endpoint)
+                if not force and signature == endpoint.get("observed_signature") and age < RECONCILE_SECONDS:
+                    continue
             try:
                 # A failed SQLite transaction must not leak staged heads/capture IDs
                 # back into the last valid in-memory graph before the next save.
@@ -368,6 +421,7 @@ class SyncService:
 
     def _status(self, link):
         heads = [self.store.get_revision(head) for head in link["heads"]]
+        roles = _roles(link)
         enabled = [endpoint for endpoint in link["endpoints"] if endpoint.get("enabled", True)]
         state = (
             "unlinked"
@@ -395,17 +449,22 @@ class SyncService:
             "last_error": link["last_error"],
             "endpoints": [
                 {
-                    key: endpoint.get(key)
-                    for key in (
-                        "key",
-                        "profile_id",
-                        "revision_id",
-                        "state",
-                        "error",
-                        "pending",
-                        "enabled",
-                        "cwd",
-                    )
+                    **{
+                        key: endpoint.get(key)
+                        for key in (
+                            "key",
+                            "profile_id",
+                            "revision_id",
+                            "state",
+                            "error",
+                            "pending",
+                            "enabled",
+                            "cwd",
+                        )
+                    },
+                    "tool": (endpoint.get("profile") or {}).get("tool"),
+                    "role": roles[endpoint["key"]][0],
+                    "origin": roles[endpoint["key"]][1],
                 }
                 for endpoint in link["endpoints"]
             ],
@@ -420,9 +479,22 @@ class SyncService:
     def _choose(self, link, branch):
         if branch is not None:
             matches = [head for head in link["heads"] if head == branch or head.startswith(branch)]
+            if not matches:
+                # An assistant's profile ID names the continuation made in it, when there is one.
+                matches = [
+                    head
+                    for head in link["heads"]
+                    if self.store.get_revision(head)["source_key"].split(":", 1)[0] == branch
+                ]
+                if len(matches) > 1:
+                    raise BridgeError(
+                        "sync_branch_required",
+                        "Ese asistente tiene varias continuaciones; elige una versión de sync status.",
+                    )
             if len(matches) != 1:
                 raise BridgeError(
-                    "sync_branch_required", "Elige una revisión de rama única del estado del vínculo."
+                    "sync_branch_required",
+                    "Elige una versión o un asistente con una sola continuación (sync status).",
                 )
             return matches[0]
         if link["selected_head"] in link["heads"]:
@@ -458,6 +530,66 @@ class SyncService:
         conversation.source_fingerprint = digest([conversation.source_fingerprint, revision["id"]])
         return conversation
 
+    def _target(self, value, revision_id, target, cwd, model):
+        """The revision as a conversation, with its profile and directory pinned for the target."""
+        self._profile(target)
+        conversation = self._conversation(self.store.get_revision(revision_id), value)
+        profile, _, directory, cap = self.bridge._prepare(conversation, target, cwd=cwd, model=model)
+        if not cap.native:
+            raise BridgeError("native_unavailable", cap.reason)
+        return conversation, profile, directory
+
+    @staticmethod
+    def _reusable(value, profile, revision_id, directory, model):
+        """A healthy session of this assistant already at the revision, the current one first."""
+        roles = _roles(value)
+        candidates = [
+            endpoint
+            for endpoint in value["endpoints"]
+            if endpoint.get("enabled", True)
+            and endpoint["profile"] == profile.model_dump(mode="json")
+            and endpoint["revision_id"] == revision_id
+            and not endpoint["pending"]
+            and not endpoint["error"]
+            and bool(endpoint.get("cwd"))
+            and same_directory(endpoint["cwd"], directory)
+            and endpoint.get("model") == model
+        ]
+        candidates.sort(key=lambda endpoint: roles[endpoint["key"]][0] == "current")
+        return candidates[-1] if candidates else None
+
+    def plan_open(self, link, target, *, branch=None, cwd=None, model=None):
+        """What ``open`` would do, without capturing, publishing or saving anything."""
+        value = self.store.get_link(link)
+        if value["paused"] or value["unlinked"]:
+            raise BridgeError("sync_paused", "Reanuda el vínculo antes de abrir una revisión sincronizada.")
+        revision_id = self._choose(value, branch)
+        _, profile, directory = self._target(value, revision_id, target, cwd, model)
+        reusable = self._reusable(value, profile, revision_id, directory, model)
+        return {
+            "link_id": value["id"],
+            "revision_id": revision_id,
+            "profile_id": profile.id,
+            "tool": profile.tool,
+            "source_key": self.store.get_revision(revision_id)["source_key"],
+            "reuse": reusable is not None,
+            "session_key": reusable["key"] if reusable else None,
+        }
+
+    def head_previews(self, link):
+        """The last request of each continuation, one line, for choosing between them.
+
+        Conversation text: only the interactive chooser asks for it; status stays content-free.
+        """
+        value = self.store.get_link(link)
+        previews = {}
+        for head in value["heads"]:
+            context = self.store.get_context(self.store.get_revision(head)["context"])
+            text = next((m["text"] for m in reversed(context) if m["role"] == "user"), "")
+            line = visible(" ".join(text.split()))
+            previews[head] = line if len(line) <= PREVIEW_CHARS else line[: PREVIEW_CHARS - 1] + "…"
+        return previews
+
     def open(self, link, target, *, branch=None, cwd=None, model=None, launch=True, new_copy=False):
         with self._operation():
             value = self.store.get_link(link)
@@ -479,27 +611,15 @@ class SyncService:
                     "sync_not_current",
                     "Hay un origen pendiente o no verificable. Espera o elige explícitamente --branch para abrir una instantánea.",
                 )
-            profile = self._profile(target)
-            revision = self.store.get_revision(revision_id)
-            conversation = self._conversation(revision, value)
-            # Pin cwd/profile/model in the intention before any native publication.
-            profile, _, directory, cap = self.bridge._prepare(conversation, target, cwd=cwd, model=model)
-            if not cap.native:
-                raise BridgeError("native_unavailable", cap.reason)
-            candidates = [
-                endpoint
-                for endpoint in value["endpoints"]
-                if endpoint["profile"] == profile.model_dump(mode="json")
-                and endpoint["revision_id"] == revision_id
-                and not endpoint["pending"]
-                and not endpoint["error"]
-                and endpoint.get("transfer_id")
-                and endpoint.get("enabled", True)
-                and endpoint.get("cwd", directory) == directory
-                and endpoint.get("model") == model
-            ]
+            conversation, profile, directory = self._target(value, revision_id, target, cwd, model)
+            reusable = None if new_copy else self._reusable(value, profile, revision_id, directory, model)
             resume_key = None
-            if candidates and not new_copy:
+            if reusable and not reusable.get("transfer_id"):
+                # The user's own session is already at this revision: reopen it as it is.
+                transfer_id = None
+                resume_key = reusable["key"]
+            elif reusable:
+                candidates = [reusable]
                 transfer_id = candidates[-1]["transfer_id"]
                 resume_key = transfer_id
                 try:
@@ -563,6 +683,7 @@ class SyncService:
                 endpoint.update(transfer_id=transfer.id, cwd=directory, model=model, state="synced")
                 if not any(old["key"] == native_key for old in value["endpoints"]):
                     value["endpoints"].append(endpoint)
+                _promote(value, native_key)
                 intent.update(state="completed", transfer_id=transfer.id)
                 self.store.save_link(value)
                 advanced = self._observe(value, endpoint, native_capture)
@@ -573,6 +694,10 @@ class SyncService:
                         "El destino continuó durante la recuperación. Su nueva revisión se conserva; consulta sync status y vuelve a abrirla.",
                     )
                 transfer_id = transfer.id
+            if reusable:
+                # Reopening makes this session its assistant's current one.
+                _promote(value, reusable["key"])
+                self.store.save_link(value)
             resume_key = resume_key or transfer_id
             result = self.bridge.resume(resume_key, launch=False)
             result.update(
@@ -581,6 +706,7 @@ class SyncService:
                 transfer_id=transfer_id,
                 launched=False,
                 snapshot=branch is not None,
+                reused=reusable is not None,
             )
         # Native interactive execution may block until the client exits. Background
         # captures must remain able to obtain the sync lock throughout that time.

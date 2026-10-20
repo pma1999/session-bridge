@@ -329,7 +329,7 @@ def test_escape_at_the_destination_goes_back_to_the_search(monkeypatch):
 
 class LinkService:
     def __init__(self, link, *, fail_cwd=False):
-        self.link, self.fail_cwd, self.calls = link, fail_cwd, []
+        self.link, self.fail_cwd, self.calls, self.reuse = link, fail_cwd, [], False
 
     def unpause(self, link):
         self.calls.append(("unpause", link))
@@ -345,15 +345,49 @@ class LinkService:
         if self.fail_cwd and cwd is None:
             raise BridgeError("cwd_required", "Needs a working folder.")
 
+    def plan_open(self, link, target, *, branch, cwd):
+        if self.fail_cwd and cwd is None:
+            raise BridgeError("cwd_required", "Needs a working folder.")
+        tool = target.split("-", 1)[0]
+        head = next((h for h in self.link["heads"] if h["id"] == branch), None) or self.link["heads"][0]
+        return {
+            "tool": tool,
+            "profile_id": target,
+            "source_key": head["source_key"],
+            "reuse": self.reuse,
+        }
 
-def _link(state, heads=(), paused=False):
+    def head_previews(self, link):
+        return {head["id"]: "request " + head["id"] for head in self.link["heads"]}
+
+    def select(self, link, branch):
+        self.calls.append(("select", link, branch))
+
+
+def _endpoint(key, role="current", origin="copy"):
+    profile_id = key.split(":", 1)[0]
+    return {
+        "key": key,
+        "profile_id": profile_id,
+        "tool": profile_id.split("-", 1)[0],
+        "role": role,
+        "origin": origin,
+        "enabled": True,
+    }
+
+
+def _link(state, heads=(), paused=False, endpoints=None):
+    heads = list(heads)
+    if endpoints is None:
+        endpoints = [_endpoint(key) for key in dict.fromkeys(head["source_key"] for head in heads)]
     return {
         "id": "ln_x",
         "name": "Daily",
         "state": state,
         "paused": paused,
-        "heads": list(heads),
-        "endpoints": [],
+        "heads": heads,
+        "selected_head": None,
+        "endpoints": endpoints,
     }
 
 
@@ -378,8 +412,11 @@ def test_conflict_requires_an_explicit_version_and_offers_only_windows_assistant
     asked = _answers(monkeypatch, "rv_two", "codex-win")
     profiles = [profile("linux-codex", "codex", "posix"), profile("codex-win", "codex")]
     interactive._open_link(SimpleNamespace(data_dir="d"), service, service.link, profiles)
-    assert asked[0][1] == ["Desde Codex · continuación", "Desde claude-win · tras una compactación", "Volver"]
+    assert asked[0][1] == ["Codex · «request rv_one»", "Claude Code · «request rv_two»", "Volver"]
+    assert "Seguiste la conversación en dos sitios" in asked[0][0]
     assert asked[1][1] == ["Codex", "Volver"]
+    # The choice is remembered, so the next open does not ask again.
+    assert ("select", "ln_x", "rv_two") in service.calls
     assert service.calls[-1] == ("open", "ln_x", "codex-win", "rv_two", None, True)
 
 
@@ -397,8 +434,8 @@ def test_link_asks_for_a_folder_when_its_own_is_gone(monkeypatch):
     _answers(monkeypatch, "codex-win")
     monkeypatch.setattr(interactive, "_ask_folder", lambda message, default="": "C:/existing")
     assert interactive._open_link(SimpleNamespace(data_dir="d"), service, service.link, PROFILES) is None
-    assert service.calls[-2:] == [
-        ("open", "ln_x", "codex-win", None, None, True),
+    # The missing folder is found while planning, before anything is launched.
+    assert [call for call in service.calls if call[0] == "open"] == [
         ("open", "ln_x", "codex-win", None, "C:/existing", True),
     ]
     service.calls.clear()
@@ -577,3 +614,86 @@ def test_no_color_reaches_every_prompt_but_not_launched_assistants(monkeypatch):
     # Every prompt in the flow draws without colour, and nothing a child process inherits changed.
     assert seen == {"depth": ColorDepth.DEPTH_1_BIT, "environment": None}
     assert "PROMPT_TOOLKIT_COLOR_DEPTH" not in os.environ
+
+
+def test_conflict_names_an_earlier_copy_and_the_original_session(monkeypatch):
+    heads = [
+        {"id": "rv_old", "source_key": "codex-win:old", "reason": "append", "created_at": None},
+        {"id": "rv_tab", "source_key": "claude-win:tab", "reason": "append", "created_at": None},
+        {"id": "rv_new", "source_key": "codex-win:new", "reason": "append", "created_at": None},
+    ]
+    endpoints = [
+        _endpoint("claude-win:tab", "superseded", "original"),
+        _endpoint("codex-win:old", "superseded"),
+        _endpoint("claude-win:copy"),
+        _endpoint("codex-win:new"),
+    ]
+    service = LinkService(_link("conflict", heads, endpoints=endpoints))
+    monkeypatch.setattr("session_bridge.sync_cli._ensure_worker", lambda root: None)
+    asked = _answers(monkeypatch, interactive.BACK)
+    assert interactive._open_link(SimpleNamespace(data_dir="d"), service, service.link, PROFILES) is (
+        interactive.BACK
+    )
+    assert "en varios sitios" in asked[0][0] and "Las demás se conservan" in asked[0][0]
+    assert asked[0][1][:3] == [
+        "Una copia anterior de Codex · «request rv_old»",
+        "La conversación original de Claude Code · «request rv_tab»",
+        "Codex · «request rv_new»",
+    ]
+    assert not any(call[0] == "select" for call in service.calls)
+
+
+def test_opening_says_whether_the_session_is_reused_or_new(monkeypatch, capsys):
+    head = {"id": "rv", "source_key": "claude-win:b", "reason": "append"}
+    endpoints = [_endpoint("claude-win:b"), _endpoint("codex-win:a", origin="original")]
+    service = LinkService(_link("synced", [head], endpoints=endpoints))
+    monkeypatch.setattr("session_bridge.sync_cli._ensure_worker", lambda root: None)
+    _answers(monkeypatch, "codex-win")
+    interactive._open_link(SimpleNamespace(data_dir="d"), service, service.link, PROFILES)
+    out = " ".join(capsys.readouterr().out.split())
+    assert "Se abrirá una sesión nueva de Codex con lo último de Claude Code." in out
+    assert "La anterior queda como estaba" in out
+    service.reuse = True
+    _answers(monkeypatch, "codex-win")
+    interactive._open_link(SimpleNamespace(data_dir="d"), service, service.link, PROFILES)
+    assert "Se abrirá tu sesión de Codex, ya al día." in " ".join(capsys.readouterr().out.split())
+
+
+def test_first_opening_in_an_assistant_does_not_mention_an_earlier_session(monkeypatch, capsys):
+    head = {"id": "rv", "source_key": "claude-win:b", "reason": "append"}
+    service = LinkService(_link("synced", [head]))
+    monkeypatch.setattr("session_bridge.sync_cli._ensure_worker", lambda root: None)
+    _answers(monkeypatch, "codex-win")
+    interactive._open_link(SimpleNamespace(data_dir="d"), service, service.link, PROFILES)
+    out = " ".join(capsys.readouterr().out.split())
+    assert "sesión nueva de Codex" in out and "La anterior" not in out
+
+
+def test_home_row_says_where_the_conversation_was_last_continued():
+    now = datetime.now(UTC)
+    head = {"id": "rv", "source_key": "claude-win:b", "created_at": (now - timedelta(minutes=3)).isoformat()}
+    synced = _link("synced", [head])
+    synced["selected_head"] = "rv"
+    conflict = _link("conflict", [head, {**head, "id": "rv2", "source_key": "codex-win:a"}])
+    conflict["id"], conflict["name"] = "ln_y", "Other"
+    rows = interactive.home_choices([], [synced, conflict], None)
+    assert rows[0].detail == "Sincronizada · última vez en Claude Code · hace 3 min"
+    assert rows[1].detail == "Sincronizada · Dos continuaciones"
+
+
+def test_menus_fit_long_labels_and_wrap_the_question_to_the_terminal(monkeypatch):
+    seen = {}
+
+    def fake_choice(*, message, options, **kwargs):
+        seen["message"], seen["labels"] = message, [label for _, label in options]
+        return options[0][0]
+
+    monkeypatch.setattr(interactive, "choice", fake_choice)
+    monkeypatch.setattr(interactive, "_columns", lambda: 40)
+    interactive._ask(
+        "Seguiste la conversación en dos sitios. ¿Con cuál continúas?", [("a", "x" * 80), ("b", "short")]
+    )
+    assert all(len(line) <= 39 for line in seen["message"].split("\n"))
+    assert "continúas?" in seen["message"].split("\n")[-1]
+    assert seen["labels"][0].endswith("…") and len(seen["labels"][0]) == 39 - interactive.MENU_INDENT
+    assert seen["labels"][1] == "short"

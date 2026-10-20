@@ -73,7 +73,7 @@ All six cross-client directions among the three listed Windows versions were exe
 
 ## Optional Windows synchronization
 
-Synchronization is off until you explicitly link a session. It follows completed checkpoints and creates immutable native copies when you open a selected revision in another supported client. If copies continue separately, both branches remain available and you choose which one to open. Existing native tabs stay on the version they already loaded.
+Synchronization is off until you explicitly link a session. It follows completed checkpoints, and each assistant keeps one current session for the conversation. Switch assistants through Session Bridge: it reopens that assistant's session when it is already up to date, including your original one, and otherwise creates a new native session with the latest turns, saying which before it opens. Native sessions are never rewritten, because no supported client lets another program add turns safely while it may have the session open. The previous session stays as it was and is still watched, so if you type in an old tab you are asked which continuation to follow; the other is kept. Existing native tabs stay on the version they already loaded.
 
 ```text
 sessionbridge sync link claude-win:SESSION_ID --name "My project"

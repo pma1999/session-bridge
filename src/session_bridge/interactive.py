@@ -380,8 +380,24 @@ def _back_on_escape(result: Any) -> KeyBindings:
     return bindings
 
 
+def _columns() -> int:
+    try:
+        from prompt_toolkit.application.current import get_app_session
+
+        return get_app_session().output.get_size().columns
+    except Exception:  # noqa: BLE001 - a menu must render even without a measurable terminal
+        return 80
+
+
+# The menu indents each label by about ten columns ("   ›  N. ") and never wraps it.
+MENU_INDENT = 10
+
+
 def _ask(message: str, options: list[tuple[Any, str]], *, default: Any = None) -> Any:
-    """Arrow-key menu; Esc goes back one step."""
+    """Arrow-key menu; Esc goes back one step. Text is fitted to the terminal, never cut mid-word."""
+    width = max(20, _columns() - 1)
+    message = "\n".join("\n".join(textwrap.wrap(line, width) or [""]) for line in message.split("\n"))
+    options = [(value, _fit(label, width - MENU_INDENT)) for value, label in options]
     return choice(
         message=message,
         options=options,
@@ -442,6 +458,15 @@ def _link_cwds(link) -> list[str]:
     ]
 
 
+def _link_summary(link) -> str:
+    """Where the conversation was last continued, or what it is waiting for."""
+    head = ui.chosen_head(link)
+    if link.get("state") == "synced" and head:
+        when = ui.relative_time(head.get("created_at"))
+        return " · ".join(part for part in ("última vez en " + ui.head_origin(head, link), when) if part)
+    return ui.link_state(link)
+
+
 def home_choices(sessions, links, cwd: str | None) -> list[Choice]:
     """Linked conversations first, then sessions by recency; this folder before other projects."""
     # An unlinked conversation or a detached session is ordinary again: it is listed as a session.
@@ -463,7 +488,7 @@ def home_choices(sessions, links, cwd: str | None) -> list[Choice]:
 
     for link in links:
         where = place(_link_cwds(link))
-        detail = "Sincronizada · " + ui.LINK_STATES.get(link.get("state"), ui.visible(link.get("state", "")))
+        detail = "Sincronizada · " + _link_summary(link)
         folders = [path for path in _link_cwds(link) if path]
         if where == ELSEWHERE and folders:
             detail += " · " + ui.folder_name(folders[0])
@@ -832,9 +857,7 @@ def _convert(bridge, ref, profiles) -> Any:
 def _open_link(bridge, service, link, profiles) -> Any:
     from .sync_cli import _ensure_worker
 
-    tools = {profile.id: ui.tool_name(profile.tool) for profile in profiles}
-    state = ui.LINK_STATES.get(link.get("state"), ui.visible(link.get("state", "")))
-    _note(f"● {ui.visible(link.get('name') or link['id'])}  ·  Sincronizada · {state}", "bold")
+    _note(f"● {ui.visible(link.get('name') or link['id'])}  ·  Sincronizada · {ui.link_state(link)}", "bold")
     if link["paused"]:
         answer = _ask(
             "El seguimiento de esta conversación está en pausa.",
@@ -858,25 +881,7 @@ def _open_link(bridge, service, link, profiles) -> Any:
             _note("Aún no hay un turno terminado que abrir. El seguimiento continúa en segundo plano.")
             _ensure_worker(bridge.data_dir)
             return None
-        options = []
-        for head in link["heads"]:
-            profile_id = str(head.get("source_key", "")).split(":", 1)[0]
-            source = tools.get(profile_id, ui.visible(profile_id))
-            when = ui.relative_time(head.get("created_at"))
-            reason = ui.REVISION_REASONS.get(head.get("reason"), ui.visible(head.get("reason", "")))
-            options.append(
-                (head["id"], " · ".join(part for part in (f"Desde {source}", when, reason) if part))
-            )
-        if len(options) > 1:
-            message = "Hay más de una versión reciente. ¿Cuál quieres continuar? Las demás se conservan."
-        else:
-            # One version, but its origin is pending or failing: say what opening it means.
-            message = (
-                "El origen tiene cambios aún sin comprobar. "
-                "¿Abrir el último turno terminado? Los cambios posteriores no se incluirán."
-            )
-            options = [(options[0][0], "Abrir el último turno terminado · " + options[0][1])]
-        branch = _ask(message, options + [(BACK, "Volver")])
+        branch = _pick_continuation(service, link)
         if branch is BACK:
             return BACK
     targets = [profile for profile in profiles if profile.enabled and profile.environment == "windows"]
@@ -890,6 +895,7 @@ def _open_link(bridge, service, link, profiles) -> Any:
     cwd = None
     while True:
         try:
+            _note(_opening_note(service.plan_open(link["id"], target, branch=branch, cwd=cwd), link), "dim")
             service.open(link["id"], target, branch=branch, cwd=cwd, launch=True)
             return None
         except BridgeError as exc:
@@ -899,6 +905,62 @@ def _open_link(bridge, service, link, profiles) -> Any:
             cwd = _ask_folder("Carpeta de trabajo existente (vacío para volver): ")
             if cwd is None:
                 return BACK
+
+
+def _pick_continuation(service, link) -> Any:
+    """Choose which continuation to follow, in words; a real choice is remembered."""
+    heads = link["heads"]
+    if len(heads) == 1:
+        # One version, but its origin is pending or failing: say what opening it means.
+        head = heads[0]
+        detail = " · ".join(
+            part
+            for part in (
+                "Desde " + ui.head_origin(head, link),
+                ui.relative_time(head.get("created_at")),
+                ui.REVISION_REASONS.get(head.get("reason"), ""),
+            )
+            if part
+        )
+        return _ask(
+            "El origen tiene cambios aún sin comprobar. "
+            "¿Abrir el último turno terminado? Los cambios posteriores no se incluirán.",
+            [(head["id"], "Abrir el último turno terminado · " + detail), (BACK, "Volver")],
+        )
+    previews = service.head_previews(link["id"])
+    options = []
+    for head in heads:
+        preview = previews.get(head["id"])
+        parts = (
+            ui.capitalized(ui.head_origin(head, link)),
+            ui.relative_time(head.get("created_at")),
+            f"«{preview}»" if preview else "",
+        )
+        options.append((head["id"], " · ".join(part for part in parts if part)))
+    others = "La otra se conserva." if len(heads) == 2 else "Las demás se conservan."
+    chosen = _ask(
+        f"Seguiste la conversación en {'dos' if len(heads) == 2 else 'varios'} sitios. "
+        f"¿Con cuál continúas? {others}",
+        options + [(BACK, "Volver")],
+    )
+    if chosen is not BACK and link["state"] == "conflict":
+        service.select(link["id"], chosen)
+    return chosen
+
+
+def _opening_note(plan, link) -> str:
+    tool = ui.tool_name(plan["tool"])
+    if plan["reuse"]:
+        return f"Se abrirá tu sesión de {tool}, ya al día."
+    source = ui.endpoint_tool(link, ui._endpoint(link, plan["source_key"]), plan["source_key"])
+    latest = "con lo último" if source == tool else f"con lo último de {source}"
+    note = f"Se abrirá una sesión nueva de {tool} {latest}."
+    if any(
+        endpoint.get("profile_id") == plan["profile_id"] and endpoint.get("enabled", True)
+        for endpoint in link.get("endpoints") or []
+    ):
+        note += " La anterior queda como estaba: si escribes en ella, se creará otra continuación."
+    return note
 
 
 def prompt_profile(values: dict[str, Any]) -> dict[str, Any]:

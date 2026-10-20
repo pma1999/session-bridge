@@ -350,3 +350,80 @@ def test_transfers_never_cut_the_transfer_id(monkeypatch, capsys):
         monkeypatch.setenv("COLUMNS", width)
         code, result = _run_main(monkeypatch, capsys, ["transfers"])
         assert code == 0 and identifier in result.out, (width, result.out)
+
+
+def _render_link(monkeypatch, value, width=100):
+    import io
+
+    from rich.console import Console
+
+    stream = io.StringIO()
+    monkeypatch.setattr(cli, "_console_out", Console(file=stream, width=width, markup=False, highlight=False))
+    cli._emit_link(value)
+    return stream.getvalue()
+
+
+def _synced_endpoint(key, role="current", origin="copy"):
+    profile_id = key.split(":", 1)[0]
+    tool = profile_id.split("-", 1)[0]
+    return {
+        "key": key,
+        "profile_id": profile_id,
+        "tool": tool,
+        "role": role,
+        "origin": origin,
+        "state": "synced",
+        "enabled": True,
+    }
+
+
+def test_sync_status_shows_one_current_session_per_assistant_and_how_to_choose(monkeypatch):
+    value = {
+        "id": "ln_abc",
+        "name": "Daily",
+        "state": "conflict",
+        "selected_head": None,
+        "last_error": None,
+        "heads": [
+            {"id": "rv_0c79fa39dab1", "source_key": "codex-win:orig", "created_at": None},
+            {"id": "rv_362e69c99105", "source_key": "claude-win:copy", "created_at": None},
+        ],
+        "endpoints": [
+            _synced_endpoint("codex-win:orig", "superseded", "original"),
+            _synced_endpoint("claude-win:copy"),
+            _synced_endpoint("codex-win:newer"),
+        ],
+    }
+    out = _render_link(monkeypatch, value)
+    assert "Dos continuaciones" in out
+    assert "Codex" in out and "sesión actual newer · +1 sesión anterior" in out
+    assert "Claude Code" in out and "sesión actual copy" in out
+    assert "desde la conversación original de Codex" in out and "desde Claude Code" in out
+    assert "sessionbridge sync select ln_abc codex-win" in out
+    assert "sessionbridge sync select ln_abc claude-win" in out
+    narrow = _render_link(monkeypatch, value, width=60)
+    assert "sync select ln_abc claude-win" in " ".join(narrow.split())
+
+
+def test_conflict_hint_gives_a_version_when_one_assistant_has_two_continuations(monkeypatch):
+    value = {
+        "id": "ln_abc",
+        "name": "Daily",
+        "state": "conflict",
+        "selected_head": None,
+        "last_error": None,
+        "heads": [
+            {"id": "rv_aaaaaaaaa111", "source_key": "claude-win:orig", "created_at": None},
+            {"id": "rv_bbbbbbbbb222", "source_key": "claude-win:copy", "created_at": None},
+            {"id": "rv_ccccccccc333", "source_key": "codex-win:copy", "created_at": None},
+        ],
+        "endpoints": [
+            _synced_endpoint("claude-win:orig", "superseded", "original"),
+            _synced_endpoint("claude-win:copy"),
+            _synced_endpoint("codex-win:copy"),
+        ],
+    }
+    out = _render_link(monkeypatch, value)
+    assert "Varias continuaciones" in out
+    assert "sync select ln_abc rv_aaaaaaaaa" in out and "sync select ln_abc rv_bbbbbbbbb" in out
+    assert "sync select ln_abc codex-win" in out and "VERSIÓN" not in out

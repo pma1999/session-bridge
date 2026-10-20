@@ -2,6 +2,16 @@
 
 This file records notable user-facing changes. Version numbers refer to the project package.
 
+## 0.5.0
+
+- A synchronized conversation now has one current session per assistant: the one Session Bridge opened or created for it last. Switching assistants reopens that session when it is already up to date, including the original session you started in, instead of creating another copy. Before, going back to an assistant always created a new session, even when nothing had changed.
+- When the conversation has new turns, a new native session is still created, because no supported client lets another program add turns to a session it may have open. The previous one stays as it was and becomes an earlier session. It is still watched, so anything typed in it is captured as its own continuation.
+- Before opening, the interactive flow says whether it will reopen your session or create a new one, and that typing in the previous one would start another continuation.
+- When you continued in more than one place, the choice names where each continuation was typed (an assistant, its original session or an earlier copy), how long ago and its last request, and is remembered. `sync select` and `--branch` also accept the profile of the assistant you continued in, such as `claude-win`.
+- New turns in a continuation that was not chosen now ask for a choice again. Before, the conversation stayed "Al día" and those turns were silently left out of what opened.
+- `sync list` and `sync status` show each assistant's current session and how many earlier ones it has, where each version came from, and the exact `sync select` commands when there is a choice to make. In JSON, endpoints also report `tool`, `role` and `origin`.
+- Earlier sessions are checked when their own file changes and fully at least every five minutes, so activity in a shared Codex or OpenCode database no longer re-reads every accumulated copy.
+
 ## 0.4.0
 
 - Redesigned the interactive start screen as one live search over every conversation: sessions from Claude Code, Codex and OpenCode and synchronized conversations (marked ●) in one list. Conversations from the current folder come first, under "En esta carpeta", followed by "En otros proyectos", so a search never misses a conversation hidden behind a scope switch.
