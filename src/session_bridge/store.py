@@ -17,11 +17,11 @@ class Store:
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.path = self.root / "bridge.sqlite3"
         if self.path.is_symlink():
-            raise BridgeError("unsafe_store", "El diario no puede ser un enlace simbólico.")
+            raise BridgeError("unsafe_store", "error.unsafe_store.journal")
         with self.connect() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
             if version > 1:
-                raise BridgeError("store_version", "El diario pertenece a una versión más reciente.")
+                raise BridgeError("store_version")
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS profiles(id TEXT PRIMARY KEY, data TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS transfers(
@@ -40,7 +40,7 @@ class Store:
         """OS lock releases on crash; persistent file itself is not proof of a live owner."""
         lockpath = self.root / "operation.lock"
         if lockpath.is_symlink():
-            raise BridgeError("unsafe_store", "El bloqueo no puede ser un enlace simbólico.")
+            raise BridgeError("unsafe_store", "error.unsafe_store.lock")
         with lockpath.open("a+b") as stream:
             if lockpath.stat().st_size == 0:
                 stream.write(b"0")
@@ -56,9 +56,7 @@ class Store:
 
                     fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             except OSError as exc:
-                raise BridgeError(
-                    "operation_busy", "Ya hay otra operación de Session Bridge en marcha."
-                ) from exc
+                raise BridgeError("operation_busy") from exc
             try:
                 yield
             finally:
@@ -103,7 +101,7 @@ class Store:
             row = db.execute("SELECT data FROM transfers WHERE id=?", (identifier,)).fetchone()
             if row:
                 return Transfer.model_validate_json(row[0])
-        raise BridgeError("transfer_not_found", "No existe ese traspaso.", transfer_id=identifier)
+        raise BridgeError("transfer_not_found", transfer_id=identifier)
 
     def save(self, transfer: Transfer):
         with self.connect() as db:

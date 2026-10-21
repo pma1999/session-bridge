@@ -22,7 +22,6 @@ def checkpoint(conversation: Conversation) -> Checkpoint:
     ):
         raise BridgeError(
             "sync_unstable_source",
-            "La captura está cambiando, incompleta o tiene una rama ambigua; se conserva la última revisión.",
         )
     result = conversation.model_copy(deep=True)
     if conversation.source.tool == "codex":
@@ -50,7 +49,7 @@ def checkpoint(conversation: Conversation) -> Checkpoint:
     if boundary < 0:
         raise BridgeError(
             "sync_pending_turn",
-            "Aún no hay un turno terminado con evidencia nativa; el seguimiento esperará.",
+            "error.sync_pending_turn.waiting",
         )
     pending = native_pending or conversation.source.active is True
     for index, event in enumerate(result.events):
@@ -62,9 +61,7 @@ def checkpoint(conversation: Conversation) -> Checkpoint:
     except BridgeError as exc:
         if exc.code != "empty_context":
             raise
-        raise BridgeError(
-            "sync_pending_turn", "El contexto vigente todavía no contiene un turno terminado."
-        ) from None
+        raise BridgeError("sync_pending_turn", "error.sync_pending_turn.context") from None
     return Checkpoint(result, bool(pending))
 
 

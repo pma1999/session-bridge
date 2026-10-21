@@ -41,7 +41,7 @@ class _AppServer:
                 stderr=subprocess.DEVNULL,
             )
         except OSError:
-            raise BridgeError("client_unavailable", "No se pudo iniciar el lector nativo Codex.") from None
+            raise BridgeError("client_unavailable", "error.client_unavailable.codex_reader") from None
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
         try:
@@ -73,15 +73,13 @@ class _AppServer:
             self.process.stdin.write((json.dumps(value, ensure_ascii=False) + "\n").encode("utf-8"))
             self.process.stdin.flush()
         except OSError:
-            raise BridgeError("native_rpc_failed", "Se interrumpió la comunicación con Codex.") from None
+            raise BridgeError("native_rpc_failed", "error.native_rpc_failed.interrupted") from None
 
     def call(self, method, params, *, timeout=30):
         import time
 
         if method not in {"initialize", "thread/read", "thread/name/set"}:
-            raise BridgeError(
-                "native_rpc_method", "Esta conexión solo permite consultar y nombrar el historial."
-            )
+            raise BridgeError("native_rpc_method")
         self.sequence += 1
         identity = self.sequence
         self._send({"id": identity, "method": method, "params": params})
@@ -92,15 +90,15 @@ class _AppServer:
             except queue.Empty:
                 break
             if value is None or self.failed:
-                raise BridgeError("native_rpc_failed", "Codex no devolvió una respuesta nativa válida.")
+                raise BridgeError("native_rpc_failed", "error.native_rpc_failed.invalid_response")
             if "method" in value and "id" in value:
                 self._send({"id": value["id"], "error": {"code": -32601, "message": "Actions disabled"}})
                 continue
             if value.get("id") == identity:
                 if "error" in value or "result" not in value:
-                    raise BridgeError("native_rpc_failed", "Codex rechazó la consulta nativa.", method=method)
+                    raise BridgeError("native_rpc_failed", "error.native_rpc_failed.rejected", method=method)
                 return value["result"]
-        raise BridgeError("native_timeout", "La verificación nativa Codex agotó el tiempo.", method=method)
+        raise BridgeError("native_timeout", "error.native_timeout.codex_verification", method=method)
 
     def close(self):
         with contextlib.suppress(OSError, ValueError):
@@ -145,19 +143,17 @@ def _read_rows(profile, native_id):
     if not candidates:
         return None
     if len(candidates) != 1:
-        raise BridgeError("native_ambiguous", "Hay varios registros para el identificador nativo.")
+        raise BridgeError("native_ambiguous")
     path = candidates[0]
     if path.is_symlink() or not path.resolve().is_relative_to(Path(profile.home).resolve()):
-        raise BridgeError("unsafe_native_path", "La ruta nativa sale del perfil seleccionado.")
+        raise BridgeError("unsafe_native_path", "error.unsafe_native_path.path")
     try:
         if path.stat().st_size > MAX_NATIVE_BYTES:
-            raise BridgeError("native_limit", "El historial nativo supera el límite de lectura explícito.")
+            raise BridgeError("native_limit", "error.native_limit.read_limit")
         with path.open("rb") as stream:
             body = stream.read(MAX_NATIVE_BYTES + 1)
         if len(body) > MAX_NATIVE_BYTES:
-            raise BridgeError(
-                "native_limit", "El historial creció por encima del límite de lectura explícito."
-            )
+            raise BridgeError("native_limit", "error.native_limit.grew")
         decoded = body
         if path.suffix == ".zst":
             import io
@@ -165,7 +161,7 @@ def _read_rows(profile, native_id):
             with zstandard.ZstdDecompressor().stream_reader(io.BytesIO(body)) as stream:
                 decoded = stream.read(MAX_NATIVE_BYTES + 1)
             if len(decoded) > MAX_NATIVE_BYTES:
-                raise BridgeError("native_limit", "El historial descomprimido supera el límite explícito.")
+                raise BridgeError("native_limit", "error.native_limit.decompressed")
         rows = [json.loads(line) for line in decoded.decode("utf-8").splitlines() if line]
         if any(not isinstance(row, dict) for row in rows):
             raise ValueError("invalid row")
@@ -173,9 +169,9 @@ def _read_rows(profile, native_id):
         if not isinstance(meta, dict):
             raise ValueError("invalid metadata")
     except (ValueError, OSError, StopIteration, KeyError, zstandard.ZstdError):
-        raise BridgeError("native_corrupt", "No se puede verificar el registro nativo.") from None
+        raise BridgeError("native_corrupt", "error.native_corrupt.record") from None
     if meta.get("id") != native_id:
-        raise BridgeError("native_corrupt", "El identificador del registro nativo no coincide.")
+        raise BridgeError("native_corrupt", "error.native_corrupt.identifier")
     return path, body, rows, meta
 
 
@@ -205,7 +201,7 @@ def inspect(profile, native_id):
 def messages(profile, native_id):
     value = _read_rows(profile, native_id)
     if value is None:
-        raise BridgeError("native_missing", "No existe la conversación nativa Codex.")
+        raise BridgeError("native_missing", "error.native_missing.codex_conversation")
     result = []
     for row in value[2]:
         item = row.get("payload") or {}
@@ -216,7 +212,7 @@ def messages(profile, native_id):
             if not isinstance(content, list) or any(
                 not isinstance(part, dict) or not isinstance(part.get("text"), str) for part in content
             ):
-                raise BridgeError("native_corrupt", "Hay mensajes nativos Codex inválidos.")
+                raise BridgeError("native_corrupt", "error.native_corrupt.codex_messages")
             result.append((item["role"], "".join(part["text"] for part in content)))
     return result
 
@@ -228,18 +224,16 @@ def native_history(profile, native_id, cwd, *, title=None):
         thread = value.get("thread", {}) if isinstance(value, dict) else {}
         if thread.get("id") != native_id or not isinstance(thread.get("turns"), list):
             raise BridgeError(
-                "native_verification_failed", "Codex no devolvió el historial completo solicitado."
+                "native_verification_failed", "error.native_verification_failed.codex_incomplete"
             )
         result = []
         for turn in thread["turns"]:
             if not isinstance(turn, dict) or not isinstance(turn.get("items"), list):
-                raise BridgeError(
-                    "native_verification_failed", "Codex devolvió un turno de historial inválido."
-                )
+                raise BridgeError("native_verification_failed", "error.native_verification_failed.codex_turn")
             for item in turn["items"]:
                 if not isinstance(item, dict):
                     raise BridgeError(
-                        "native_verification_failed", "Codex devolvió un elemento de historial inválido."
+                        "native_verification_failed", "error.native_verification_failed.codex_item"
                     )
                 if item.get("type") == "userMessage":
                     content = item.get("content", [])
@@ -250,14 +244,14 @@ def native_history(profile, native_id, cwd, *, title=None):
                         for part in content
                     ):
                         raise BridgeError(
-                            "native_verification_failed", "El historial Codex contiene bloques no esperados."
+                            "native_verification_failed", "error.native_verification_failed.codex_blocks"
                         )
                     result.append(("user", "".join(part["text"] for part in content)))
                 elif item.get("type") == "agentMessage" and isinstance(item.get("text"), str):
                     result.append(("assistant", item["text"]))
                 else:
                     raise BridgeError(
-                        "native_verification_failed", "El historial Codex contiene elementos no esperados."
+                        "native_verification_failed", "error.native_verification_failed.codex_items"
                     )
         if title:
             rpc.call("thread/name/set", {"threadId": native_id, "name": title})
@@ -268,7 +262,7 @@ def native_history(profile, native_id, cwd, *, title=None):
 
 def write(request):
     if inspect(request.profile, request.native_id) is not None:
-        raise BridgeError("native_conflict", "El identificador ya existe; reconcilia la operación.")
+        raise BridgeError("native_conflict", "error.native_conflict.exists")
     stamp = utc_now()
     provenance = {"operation_id": request.operation_id, "imported": True, "schema_version": 1}
     rows = [
@@ -320,27 +314,21 @@ def write(request):
         rows.extend({"timestamp": stamp, "type": kind, "payload": payload} for kind, payload in payloads)
     data = "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows).encode("utf-8")
     if len(data) > MAX_NATIVE_BYTES:
-        raise BridgeError(
-            "native_limit", "El historial supera 128 MiB; selecciona un punto de contexto o handoff."
-        )
+        raise BridgeError("native_limit", "error.native_limit.history_size")
     directory = Path(request.profile.home) / "sessions" / stamp[:4] / stamp[5:7] / stamp[8:10]
     if not directory.resolve().is_relative_to(Path(request.profile.home).resolve()):
-        raise BridgeError("unsafe_native_path", "La ruta nativa sale del perfil seleccionado.")
+        raise BridgeError("unsafe_native_path", "error.unsafe_native_path.path")
     path = directory / f"rollout-{stamp[:19].replace(':', '-')}-{request.native_id}.jsonl"
     try:
         atomic_write(path, data)
     except BridgeError as exc:
         if exc.code == "already_exists":
-            raise BridgeError(
-                "native_conflict", "El identificador ya existe; reconcilia la operación."
-            ) from None
+            raise BridgeError("native_conflict", "error.native_conflict.exists") from None
         raise
     observed = native_history(request.profile, request.native_id, request.cwd, title=request.title)
     if observed != [(m.role, m.text) for m in request.messages]:
-        raise BridgeError(
-            "native_verification_failed", "El historial visible Codex no coincide con la proyección completa."
-        )
+        raise BridgeError("native_verification_failed", "error.native_verification_failed.codex_projection")
     receipt = inspect(request.profile, request.native_id)
     if receipt is None:
-        raise BridgeError("native_missing", "El destino desapareció durante la escritura; reconcilia.")
+        raise BridgeError("native_missing", "error.native_missing.vanished")
     return receipt

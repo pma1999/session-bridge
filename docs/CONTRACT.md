@@ -1,8 +1,16 @@
 # Shared implementation contract
 
 Python 3.11+, Pydantic 2. Domain contracts are in `models.py`; public errors use
-`BridgeError(code, Spanish message, **content_free_details)`. JSON CLI envelope is
-`{"schema_version":1,"ok":true,"data":...}` or `ok:false,error:{code,message,details}`.
+`BridgeError(code, key=None, /, **content_free_details)`, where `key` names the text in the
+`i18n` catalogs and defaults to `error.<code>`. JSON CLI envelope is
+`{"schema_version":1,"ok":true,"data":...}` or `ok:false,error:{code,key,message,details}`.
+`code` and `key` are stable; `message` is rendered in the language in use and may change.
+
+Text people read lives only in `src/session_bridge/i18n/<lang>.py` and is referred to by key.
+What is stored or exchanged (archives, receipts, sync data, capability reasons, warnings) holds
+codes and keys, never rendered prose. Text the destination model reads (the handoff context,
+projection and reader markers) is English and is not localized, because it is part of stored
+identities.
 
 ## Read adapters
 

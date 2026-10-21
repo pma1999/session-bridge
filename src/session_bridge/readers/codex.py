@@ -40,7 +40,9 @@ def discover(profile):
         with database(db) as con:
             cols = columns(con, "threads")
             if "id" not in cols:
-                raise BridgeError("source_schema_unsupported", "No se reconoce el esquema de hilos Codex.")
+                raise BridgeError(
+                    "source_schema_unsupported", "error.source_schema_unsupported.codex_threads"
+                )
             selected = [
                 k
                 for k in (
@@ -562,7 +564,7 @@ def read(profile, ref, *, snapshot=False):
                     raw.append({"table": "thread_history_projection_state", "row": value})
     if any(t.get("status") in ("inProgress", "in_progress", "running") for t in turns):
         if not snapshot:
-            raise BridgeError("source_active", "La sesión de origen está activa; solicita una instantánea.")
+            raise BridgeError("source_active")
         warnings.append("source_active_snapshot")
     path = scoped(locator, base) if locator else None
     if path and not path.exists() and Path(str(path) + ".zst").exists():
@@ -578,7 +580,7 @@ def read(profile, ref, *, snapshot=False):
         ambiguous = bool(issues) or broken
         raw.extend(records)
     elif not history:
-        raise BridgeError("source_not_found", "No se encuentra el historial de la sesión Codex.")
+        raise BridgeError("source_not_found", "error.source_not_found.codex_history")
     else:
         warnings.append("source_rollout_missing")
     self_path = self_path or "/root"

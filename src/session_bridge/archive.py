@@ -26,7 +26,7 @@ def atomic_write(path: Path, data: bytes) -> None:
     """Publish a complete file exclusively, never replacing a concurrent creator."""
     path = Path(path)
     if path.exists() or path.is_symlink():
-        raise BridgeError("already_exists", "El archivo de destino ya existe.", path=str(path))
+        raise BridgeError("already_exists", path=str(path))
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=".sbridge-", dir=path.parent)
     try:
@@ -37,7 +37,7 @@ def atomic_write(path: Path, data: bytes) -> None:
         try:
             os.link(temporary, path)
         except FileExistsError as exc:
-            raise BridgeError("already_exists", "El archivo de destino ya existe.", path=str(path)) from exc
+            raise BridgeError("already_exists", path=str(path)) from exc
     finally:
         Path(temporary).unlink(missing_ok=True)
 
@@ -60,9 +60,7 @@ def _conversations(conversation):
     while pending:
         scope, item, depth = pending.pop()
         if depth > 16 or len(seen) >= 512 or id(item) in seen:
-            raise BridgeError(
-                "package_limit", "El árbol de conversaciones excede los límites o contiene ciclos."
-            )
+            raise BridgeError("package_limit", "error.package_limit.tree")
         seen.add(id(item))
         yield scope, item
         for index, child in reversed(list(enumerate(item.related_conversations))):
@@ -78,19 +76,19 @@ def _attachments(conversation):
 def write_package(conversation: Conversation, output: Path, *, include_files=None) -> dict:
     output = Path(output)
     if output.exists() or output.is_symlink():
-        raise BridgeError("already_exists", "El archivo de destino ya existe.", path=str(output))
+        raise BridgeError("already_exists", path=str(output))
     explicit = {Path(p).resolve(strict=True) for p in (include_files or [])}
     copied = conversation.model_copy(deep=True)
     referenced = {Path(a.path).resolve() for _, a, _ in _attachments(copied) if a.path}
     for file in sorted(explicit - referenced):
         if not file.is_file():
-            raise BridgeError("invalid_attachment", "Solo se pueden incluir archivos regulares explícitos.")
+            raise BridgeError("invalid_attachment", "error.invalid_attachment.regular_files_only")
         copied.attachments.append(
             Attachment(id="included-" + digest(str(file))[:24], name=file.name, path=str(file), managed=False)
         )
     attachment_keys = [key for key, _, _ in _attachments(copied)]
     if len(set(attachment_keys)) != len(attachment_keys):
-        raise BridgeError("attachment_identity", "Hay identificadores de adjuntos duplicados.")
+        raise BridgeError("attachment_identity")
     members: dict[str, bytes] = {}
     attachment_members = {}
     # A managed source file must remain under the native transcript's directory. Caller-supplied
@@ -101,11 +99,11 @@ def write_package(conversation: Conversation, output: Path, *, include_files=Non
         data = None
         if attachment.data_base64 is not None:
             if len(attachment.data_base64) > MAX_MEMBER * 4 // 3 + 4:
-                raise BridgeError("package_limit", "Un adjunto excede el límite del paquete.")
+                raise BridgeError("package_limit", "error.package_limit.attachment")
             try:
                 data = base64.b64decode(attachment.data_base64, validate=True)
             except ValueError as exc:
-                raise BridgeError("invalid_attachment", "Hay un adjunto embebido inválido.") from exc
+                raise BridgeError("invalid_attachment", "error.invalid_attachment.embedded") from exc
         elif attachment.path:
             file = Path(attachment.path)
             if file.is_file():
@@ -118,7 +116,7 @@ def write_package(conversation: Conversation, output: Path, *, include_files=Non
                 )
                 if allowed:
                     if file.stat().st_size > MAX_MEMBER:
-                        raise BridgeError("package_limit", "Un adjunto excede el límite del paquete.")
+                        raise BridgeError("package_limit", "error.package_limit.attachment")
                     data = file.read_bytes()
         attachment.path = None
         attachment.managed = False
@@ -126,7 +124,7 @@ def write_package(conversation: Conversation, output: Path, *, include_files=Non
             attachment.status = "remote_reference" if attachment.url else "not_included"
             continue
         if len(data) > MAX_MEMBER:
-            raise BridgeError("package_limit", "Un adjunto excede el límite del paquete.")
+            raise BridgeError("package_limit", "error.package_limit.attachment")
         sha = hashlib.sha256(data).hexdigest()
         member = "attachments/" + sha
         members[member] = data
@@ -140,7 +138,7 @@ def write_package(conversation: Conversation, output: Path, *, include_files=Non
         or sum(map(len, members.values())) > MAX_TOTAL
         or any(len(data) > MAX_MEMBER for data in members.values())
     ):
-        raise BridgeError("package_limit", "El paquete excede los límites de recursos.")
+        raise BridgeError("package_limit", "error.package_limit.resources")
     manifest = {
         "format": "session-bridge",
         "schema_version": 1,
@@ -168,7 +166,7 @@ def write_package(conversation: Conversation, output: Path, *, include_files=Non
         try:
             os.link(temporary, output)
         except FileExistsError as exc:
-            raise BridgeError("already_exists", "El archivo de destino ya existe.", path=str(output)) from exc
+            raise BridgeError("already_exists", path=str(output)) from exc
     finally:
         temporary.unlink(missing_ok=True)
     return {
@@ -214,7 +212,7 @@ def read_package(path: Path, *, attachment_dir: Path | None = None) -> Conversat
                 or type(manifest.get("schema_version")) is not int
                 or manifest.get("schema_version") != 1
             ):
-                raise BridgeError("package_version", "Versión de paquete no compatible.")
+                raise BridgeError("package_version", "error.package_version.package")
             files = manifest["files"]
             if set(files) != set(names) - {"manifest.json"}:
                 raise ValueError("unlisted member")
@@ -226,12 +224,12 @@ def read_package(path: Path, *, attachment_dir: Path | None = None) -> Conversat
                 verified[name] = data
             conversation = Conversation.model_validate(_json(verified["conversation.json"]))
             if conversation.schema_version != 1:
-                raise BridgeError("package_version", "Versión de conversación no compatible.")
+                raise BridgeError("package_version", "error.package_version.conversation")
             assets = manifest.get("attachments", {})
             entries = list(_attachments(conversation))
             for _, item in _conversations(conversation):
                 if item.schema_version != 1:
-                    raise BridgeError("package_version", "Versión de conversación relacionada no compatible.")
+                    raise BridgeError("package_version", "error.package_version.related")
             ids = [key for key, _, _ in entries]
             if len(set(ids)) != len(ids) or set(assets) - set(ids):
                 raise ValueError("invalid attachment identity")
@@ -287,6 +285,4 @@ def read_package(path: Path, *, attachment_dir: Path | None = None) -> Conversat
         RecursionError,
         AttributeError,
     ) as exc:
-        raise BridgeError(
-            "invalid_package", "Paquete inválido, inseguro, incompleto o con integridad incorrecta."
-        ) from exc
+        raise BridgeError("invalid_package") from exc

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -11,18 +12,27 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from . import i18n
 from .errors import BridgeError
 from .models import Profile, WriteRequest
 
+_CODE = re.compile(r"[a-z][a-z0-9_]{0,63}")
 _DISTRO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$")
 _OPS = {"discover", "read", "capability", "write", "verify", "inspect", "undo", "resume_argv"}
 MAX_REQUEST_BYTES = 64 * 1024 * 1024
 
 
+def _helper_environment() -> dict[str, str]:
+    """This environment plus the language, which WSLENV hands over to the Linux helper."""
+    env = i18n.child_environment(dict(os.environ))
+    env["WSLENV"] = ":".join(part for part in (env.get("WSLENV"), "SESSIONBRIDGE_LANG/u") if part)
+    return env
+
+
 def _wsl_exe() -> str:
     exe = shutil.which("wsl.exe") or shutil.which("wsl")
     if not exe:
-        raise BridgeError("wsl_unavailable", "No se encontró WSL en este equipo.")
+        raise BridgeError("wsl_unavailable")
     return exe
 
 
@@ -41,11 +51,11 @@ def status() -> dict[str, Any]:
             [_wsl_exe(), "--list", "--verbose"], capture_output=True, check=False, timeout=10
         )
     except (OSError, subprocess.TimeoutExpired):
-        raise BridgeError("wsl_status_failed", "No se pudo consultar el estado de WSL.") from None
+        raise BridgeError("wsl_status_failed") from None
     if result.returncode != 0:
         raise BridgeError(
             "wsl_status_failed",
-            "WSL no pudo devolver el estado de las distribuciones.",
+            "error.wsl_status_failed.distributions",
             exit_code=result.returncode,
         )
     lines = _decode_output(result.stdout).replace("\r", "").splitlines()
@@ -54,6 +64,7 @@ def status() -> dict[str, Any]:
         cleaned = line.strip()
         if cleaned.startswith("*"):
             cleaned = cleaned[1:].strip()
+        # i18n: verbatim. wsl.exe writes its states in the Windows language; these are its words.
         match = re.match(
             r"^(.*?)\s+(Running|Stopped|En ejecución|Detenido)\s+(\d+)\s*$", cleaned, re.IGNORECASE
         )
@@ -69,22 +80,18 @@ def status() -> dict[str, Any]:
 
 def _valid_distro(distro: str) -> None:
     if not _DISTRO.fullmatch(distro):
-        raise BridgeError("invalid_distro", "El nombre de distribución WSL no es válido.")
+        raise BridgeError("invalid_distro")
 
 
 def call(profile: Profile, op: str, data: dict[str, Any]) -> Any:
     """Send one allowlisted version-1 JSON request to the installed Linux helper."""
     if profile.environment != "wsl" or not profile.distro:
-        raise BridgeError(
-            "invalid_wsl_profile", "La operación requiere un perfil WSL con distribución explícita."
-        )
+        raise BridgeError("invalid_wsl_profile", "error.invalid_wsl_profile.distribution")
     if not profile.helper or not PurePosixPath(profile.helper).is_absolute() or "\x00" in profile.helper:
-        raise BridgeError(
-            "invalid_wsl_profile", "El perfil WSL necesita la ruta Linux absoluta del Python ayudante."
-        )
+        raise BridgeError("invalid_wsl_profile", "error.invalid_wsl_profile.helper_python")
     _valid_distro(profile.distro)
     if op not in _OPS:
-        raise BridgeError("unsupported_helper_operation", "La operación no está permitida para el helper.")
+        raise BridgeError("unsupported_helper_operation")
     state = next(
         (item for item in status()["distributions"] if item["name"].casefold() == profile.distro.casefold()),
         None,
@@ -92,13 +99,13 @@ def call(profile: Profile, op: str, data: dict[str, Any]) -> Any:
     if state is None:
         raise BridgeError(
             "wsl_distro_missing",
-            "La distribución configurada no está registrada en WSL.",
+            "error.wsl_distro_missing.configured",
             distribution=profile.distro,
         )
     if not state["running"]:
         raise BridgeError(
             "wsl_distro_stopped",
-            "La distribución está detenida. Iníciala explícitamente con `wsl start`.",
+            "error.wsl_distro_stopped.start_it",
             distribution=profile.distro,
         )
     args = dict(data)
@@ -107,10 +114,10 @@ def call(profile: Profile, op: str, data: dict[str, Any]) -> Any:
             request = WriteRequest.model_validate(args.get("request"))
         except (ValidationError, TypeError, ValueError, AttributeError):
             raise BridgeError(
-                "invalid_helper_arguments", "La solicitud de escritura no cumple el protocolo v1."
+                "invalid_helper_arguments", "error.invalid_helper_arguments.write_request"
             ) from None
         if request.profile.model_dump(mode="json") != profile.model_dump(mode="json"):
-            raise BridgeError("profile_mismatch", "La escritura no corresponde al perfil WSL seleccionado.")
+            raise BridgeError("profile_mismatch", "error.profile_mismatch.wsl_write")
         args["request"] = request.model_dump(mode="json")
     else:
         args["profile"] = profile.model_dump(mode="json")
@@ -118,7 +125,7 @@ def call(profile: Profile, op: str, data: dict[str, Any]) -> Any:
     if len(request) > MAX_REQUEST_BYTES:
         raise BridgeError(
             "request_too_large",
-            "La solicitud WSL supera el límite explícito de 64 MiB.",
+            "error.request_too_large.wsl",
             limit_bytes=MAX_REQUEST_BYTES,
         )
     try:
@@ -136,28 +143,32 @@ def call(profile: Profile, op: str, data: dict[str, Any]) -> Any:
             capture_output=True,
             check=False,
             timeout=60,
+            env=_helper_environment(),
         )
     except (OSError, subprocess.TimeoutExpired):
-        raise BridgeError("wsl_helper_failed", "No se pudo comunicar con el helper de WSL.") from None
+        raise BridgeError("wsl_helper_failed", "error.wsl_helper_failed.unreachable") from None
     if result.returncode != 0:
         raise BridgeError(
-            "wsl_helper_failed", "El helper de WSL rechazó la operación.", exit_code=result.returncode
+            "wsl_helper_failed", "error.wsl_helper_failed.rejected", exit_code=result.returncode
         )
     try:
         response = json.loads(result.stdout.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
-        raise BridgeError(
-            "wsl_protocol_error", "El helper de WSL devolvió una respuesta no válida."
-        ) from None
+        raise BridgeError("wsl_protocol_error") from None
     if not isinstance(response, dict) or response.get("protocol_version") != 1 or "ok" not in response:
-        raise BridgeError("wsl_protocol_error", "El helper de WSL devolvió una respuesta no válida.")
+        raise BridgeError("wsl_protocol_error")
     if response["ok"] is not True:
-        error = response.get("error") or {}
-        raise BridgeError(
-            str(error.get("code", "wsl_helper_error")),
-            str(error.get("message", "La operación WSL falló.")),
-            **(error.get("details") if isinstance(error.get("details"), dict) else {}),
-        )
+        error = response.get("error") if isinstance(response.get("error"), dict) else {}
+        code = error.get("code")
+        if not isinstance(code, str) or not _CODE.fullmatch(code):
+            code = "wsl_helper_error"
+        key, message = error.get("key"), error.get("message")
+        # Render here, in this process's language: the helper's own key when this version knows it;
+        # otherwise its text, which a catalog recognises when the helper is an older version.
+        if not (i18n.is_key(key) and i18n.has(key, i18n.DEFAULT)):
+            key = message if isinstance(message, str) and message else None
+        details = error.get("details") if isinstance(error.get("details"), dict) else {}
+        raise BridgeError(code, key, **details)
     return response.get("data")
 
 
@@ -168,9 +179,7 @@ def start(distro: str) -> dict[str, Any]:
         (item for item in status()["distributions"] if item["name"].casefold() == distro.casefold()), None
     )
     if state is None:
-        raise BridgeError(
-            "wsl_distro_missing", "La distribución indicada no está registrada en WSL.", distribution=distro
-        )
+        raise BridgeError("wsl_distro_missing", "error.wsl_distro_missing.requested", distribution=distro)
     if not state["running"]:
         try:
             result = subprocess.run(
@@ -180,11 +189,9 @@ def start(distro: str) -> dict[str, Any]:
                 timeout=30,
             )
         except (OSError, subprocess.TimeoutExpired):
-            raise BridgeError("wsl_start_failed", "No se pudo iniciar la distribución elegida.") from None
+            raise BridgeError("wsl_start_failed") from None
         if result.returncode != 0:
-            raise BridgeError(
-                "wsl_start_failed", "No se pudo iniciar la distribución elegida.", exit_code=result.returncode
-            )
+            raise BridgeError("wsl_start_failed", exit_code=result.returncode)
     return {"distribution": distro, "running": True}
 
 
@@ -193,9 +200,7 @@ def destination_path(profile: Profile, path: Path) -> str:
     _valid_distro(profile.distro or "")
     state = next((d for d in status()["distributions"] if d["name"] == profile.distro), None)
     if not state or not state["running"]:
-        raise BridgeError(
-            "wsl_distro_stopped", "Inicia explícitamente la distribución antes de preparar su traspaso."
-        )
+        raise BridgeError("wsl_distro_stopped", "error.wsl_distro_stopped.before_handoff")
     try:
         result = subprocess.run(
             [_wsl_exe(), "--distribution", profile.distro, "--exec", "wslpath", "-a", "-u", str(path)],
@@ -208,7 +213,7 @@ def destination_path(profile: Profile, path: Path) -> str:
             raise ValueError("invalid mapping")
         return mapped
     except (OSError, ValueError, subprocess.TimeoutExpired):
-        raise BridgeError("wsl_path_mapping", "No se pudo convertir la ruta del contexto para WSL.") from None
+        raise BridgeError("wsl_path_mapping") from None
 
 
 def install(distro: str, wheel_path: Path) -> dict[str, Any]:
@@ -216,17 +221,15 @@ def install(distro: str, wheel_path: Path) -> dict[str, Any]:
     _valid_distro(distro)
     wheel = Path(wheel_path).resolve(strict=True)
     if not wheel.is_file() or wheel.suffix.casefold() != ".whl":
-        raise BridgeError("invalid_wheel", "Indica el archivo wheel de Session Bridge.")
+        raise BridgeError("invalid_wheel", "error.invalid_wheel.file")
     if not wheel.name.casefold().startswith(("session_bridge-", "session-bridge-")):
-        raise BridgeError("invalid_wheel", "El wheel debe pertenecer a Session Bridge.")
+        raise BridgeError("invalid_wheel", "error.invalid_wheel.package")
     # WSL can address a Windows drive through /mnt/<drive>; pass the path as one argv token.
     match = re.match(r"^([A-Za-z]):[\\/](.*)$", str(wheel))
     if match:
         linux_wheel = f"/mnt/{match.group(1).lower()}/{match.group(2).replace(chr(92), '/')}"
     else:
-        raise BridgeError(
-            "wheel_path_unsupported", "El wheel debe estar en una unidad Windows montada en WSL."
-        )
+        raise BridgeError("wheel_path_unsupported")
     exe = _wsl_exe()
     # The fixed Python bootstrap computes its own home directory. The wheel stays one argv token.
     bootstrap = "\n".join(
@@ -251,9 +254,7 @@ def install(distro: str, wheel_path: Path) -> dict[str, Any]:
             timeout=300,
         )
     except (OSError, subprocess.TimeoutExpired):
-        raise BridgeError(
-            "wsl_install_failed", "No se pudo preparar el entorno de Session Bridge en WSL."
-        ) from None
+        raise BridgeError("wsl_install_failed") from None
     if result.returncode != 0:
         try:
             packet = json.loads(_decode_output(result.stdout))
@@ -266,22 +267,19 @@ def install(distro: str, wheel_path: Path) -> dict[str, Any]:
             ):
                 raise BridgeError(
                     "bootstrap_failed",
-                    "No se pudo preparar el entorno de Session Bridge en WSL.",
+                    "error.bootstrap_failed.wsl_environment",
                     stage=stage,
                 )
         except (ValueError, TypeError, AttributeError):
             pass
         raise BridgeError(
             "wsl_install_failed",
-            "No se pudo preparar el entorno de Session Bridge en WSL.",
             exit_code=result.returncode,
         )
     try:
         metadata = json.loads(_decode_output(result.stdout))
     except (json.JSONDecodeError, UnicodeError):
-        raise BridgeError(
-            "wsl_install_protocol_error", "La instalación no devolvió metadatos válidos."
-        ) from None
+        raise BridgeError("wsl_install_protocol_error", "error.wsl_install_protocol_error.metadata") from None
     required_paths = ("helper", "home", "install_root", "launcher")
     if (
         not isinstance(metadata, dict)
@@ -293,7 +291,7 @@ def install(distro: str, wheel_path: Path) -> dict[str, Any]:
         or metadata.get("path_status") not in {"added", "managed", "conflict", "unavailable"}
         or not isinstance(metadata.get("on_path"), bool)
     ):
-        raise BridgeError("wsl_install_protocol_error", "La instalación no devolvió metadatos válidos.")
+        raise BridgeError("wsl_install_protocol_error", "error.wsl_install_protocol_error.metadata")
     profiles = []
     try:
         for item in metadata["profiles"]:
@@ -307,7 +305,5 @@ def install(distro: str, wheel_path: Path) -> dict[str, Any]:
                 raise ValueError("profile metadata mismatch")
             profiles.append(profile.model_dump(mode="json"))
     except (ValidationError, TypeError, ValueError):
-        raise BridgeError(
-            "wsl_install_protocol_error", "La instalación no devolvió perfiles válidos."
-        ) from None
+        raise BridgeError("wsl_install_protocol_error", "error.wsl_install_protocol_error.profiles") from None
     return {"installed": True, **metadata, "profiles": profiles}

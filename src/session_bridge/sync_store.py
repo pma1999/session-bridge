@@ -35,14 +35,12 @@ class SyncStore:
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.path = self.root / "sync.sqlite3"
         if self.path.is_symlink():
-            raise BridgeError("sync_store_unsafe", "El almacén de sincronización no es seguro.")
+            raise BridgeError("sync_store_unsafe")
         try:
             with self._read_connection() as db:
                 version = db.execute("PRAGMA user_version").fetchone()[0]
                 if version > self.SCHEMA_VERSION:
-                    raise BridgeError(
-                        "sync_store_version", "El almacén pertenece a una versión más reciente."
-                    )
+                    raise BridgeError("sync_store_version")
                 present = {row[0] for row in db.execute("SELECT name FROM sqlite_master")}
                 if version == self.SCHEMA_VERSION and self.SCHEMA_OBJECTS <= present:
                     # Already current: opening needs no write, so a busy worker cannot block it.
@@ -68,7 +66,7 @@ class SyncStore:
         except BridgeError:
             raise
         except (OSError, sqlite3.Error) as exc:
-            raise BridgeError("sync_store_invalid", "No se pudo abrir el almacén de sincronización.") from exc
+            raise BridgeError("sync_store_invalid", "error.sync_store_invalid.open") from exc
 
     def connect(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.path, timeout=10)
@@ -101,7 +99,7 @@ class SyncStore:
         """Acquire a process-owned lock that the OS releases after a crash."""
         lockpath = self.root / "sync-operation.lock"
         if lockpath.is_symlink():
-            raise BridgeError("sync_store_unsafe", "El bloqueo de sincronización no es seguro.")
+            raise BridgeError("sync_store_unsafe", "error.sync_store_unsafe.lock")
         try:
             with lockpath.open("a+b") as stream:
                 if lockpath.stat().st_size == 0:
@@ -118,9 +116,7 @@ class SyncStore:
 
                         fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except OSError as exc:
-                    raise BridgeError(
-                        "sync_busy", "Ya hay una operación de sincronización en marcha."
-                    ) from exc
+                    raise BridgeError("sync_busy") from exc
                 try:
                     yield
                 finally:
@@ -136,7 +132,7 @@ class SyncStore:
         except BridgeError:
             raise
         except OSError as exc:
-            raise BridgeError("sync_store_unsafe", "No se pudo usar el bloqueo de sincronización.") from exc
+            raise BridgeError("sync_store_unsafe", "error.sync_store_unsafe.lock_unusable") from exc
 
     @staticmethod
     def _json(value: Any) -> str:
@@ -161,7 +157,7 @@ class SyncStore:
                 else [value for value in values if not value.get("unlinked", False)]
             )
         except (OSError, sqlite3.Error, ValueError) as exc:
-            raise BridgeError("sync_store_invalid", "No se pudieron leer los vínculos.") from exc
+            raise BridgeError("sync_store_invalid", "error.sync_store_invalid.links") from exc
 
     def get_link(self, key: str) -> dict:
         try:
@@ -181,20 +177,20 @@ class SyncStore:
             if len(rows) == 1:
                 return json.loads(rows[0][1])
             if len(rows) > 1:
-                raise BridgeError("sync_ambiguous", "El identificador coincide con varios vínculos.")
+                raise BridgeError("sync_ambiguous", "error.sync_ambiguous.identifier")
         except BridgeError:
             raise
         except (OSError, sqlite3.Error, ValueError) as exc:
-            raise BridgeError("sync_store_invalid", "No se pudo leer el vínculo.") from exc
-        raise BridgeError("sync_link_not_found", "No existe ese vínculo.")
+            raise BridgeError("sync_store_invalid", "error.sync_store_invalid.link") from exc
+        raise BridgeError("sync_link_not_found")
 
     def save_link(self, value: dict, *, db: sqlite3.Connection | None = None) -> None:
         if not isinstance(value, dict) or not value.get("id") or not value.get("name"):
-            raise BridgeError("sync_link_invalid", "El vínculo no contiene identidad y nombre válidos.")
+            raise BridgeError("sync_link_invalid")
         with self._write_db(db) as conn:
             row = conn.execute("SELECT name FROM links WHERE id=?", (value["id"],)).fetchone()
             if row and row[0] != value["name"]:
-                raise BridgeError("sync_link_conflict", "El vínculo ya tiene otro nombre.")
+                raise BridgeError("sync_link_conflict", "error.sync_link_conflict.renamed")
             try:
                 conn.execute(
                     "INSERT INTO links(id,name,data) VALUES(?,?,?) "
@@ -202,18 +198,18 @@ class SyncStore:
                     (value["id"], value["name"], self._json(value)),
                 )
             except sqlite3.IntegrityError as exc:
-                raise BridgeError("sync_link_conflict", "Ese nombre ya pertenece a otro vínculo.") from exc
+                raise BridgeError("sync_link_conflict", "error.sync_link_conflict.name_taken") from exc
 
     def put_revision(self, value: dict, *, db: sqlite3.Connection | None = None) -> None:
         required = {"id", "link_id", "parent_id", "source_key", "capture", "context", "created_at", "reason"}
         if not isinstance(value, dict) or not required.issubset(value):
-            raise BridgeError("sync_revision_invalid", "La revisión no contiene los campos obligatorios.")
+            raise BridgeError("sync_revision_invalid")
         body = self._json(value)
         with self._write_db(db) as conn:
             row = conn.execute("SELECT data FROM revisions WHERE id=?", (value["id"],)).fetchone()
             if row:
                 if row[0] != body:
-                    raise BridgeError("sync_revision_conflict", "La revisión existente es inmutable.")
+                    raise BridgeError("sync_revision_conflict")
                 return
             conn.execute(
                 "INSERT INTO revisions(id,link_id,data) VALUES(?,?,?)", (value["id"], value["link_id"], body)
@@ -228,8 +224,8 @@ class SyncStore:
             if row:
                 return json.loads(row[0])
         except (sqlite3.Error, ValueError) as exc:
-            raise BridgeError("sync_store_invalid", "No se pudo leer la revisión.") from exc
-        raise BridgeError("sync_revision_not_found", "No existe esa revisión.")
+            raise BridgeError("sync_store_invalid", "error.sync_store_invalid.revision") from exc
+        raise BridgeError("sync_revision_not_found")
 
     def revisions(self, link_id: str) -> list[dict]:
         try:
@@ -241,13 +237,11 @@ class SyncStore:
                     )
                 ]
         except (sqlite3.Error, ValueError) as exc:
-            raise BridgeError("sync_store_invalid", "No se pudieron leer las revisiones.") from exc
+            raise BridgeError("sync_store_invalid", "error.sync_store_invalid.revisions") from exc
 
     def _put_blob(self, raw: bytes, db: sqlite3.Connection) -> str:
         if len(raw) > self.MAX_BLOB_BYTES:
-            raise BridgeError(
-                "sync_capture_too_large", "Un elemento de la captura supera el límite permitido."
-            )
+            raise BridgeError("sync_capture_too_large", "error.sync_capture_too_large.item")
         key = hashlib.sha256(raw).hexdigest()
         db.execute(
             "INSERT OR IGNORE INTO blobs(hash,raw_size,data) VALUES(?,?,?)",
@@ -268,15 +262,15 @@ class SyncStore:
             db.execute("BEGIN")
         row = db.execute("SELECT raw_size,length(data) FROM blobs WHERE hash=?", (key,)).fetchone()
         if row is None:
-            raise BridgeError("sync_blob_invalid", "El contenido almacenado no está disponible.")
+            raise BridgeError("sync_blob_invalid", "error.sync_blob_invalid.content_missing")
         size, packed_size = row
         if not isinstance(size, int) or size < 0 or size > self.MAX_BLOB_BYTES:
-            raise BridgeError("sync_blob_invalid", "El contenido almacenado no es válido.")
+            raise BridgeError("sync_blob_invalid")
         if not isinstance(packed_size, int) or packed_size < 0 or packed_size > self._max_packed_blob_bytes():
-            raise BridgeError("sync_blob_invalid", "El contenido almacenado no es válido.")
+            raise BridgeError("sync_blob_invalid")
         payload_row = db.execute("SELECT data FROM blobs WHERE hash=?", (key,)).fetchone()
         if payload_row is None or not isinstance(payload_row[0], bytes) or len(payload_row[0]) != packed_size:
-            raise BridgeError("sync_blob_invalid", "El contenido almacenado no es válido.")
+            raise BridgeError("sync_blob_invalid")
         packed = payload_row[0]
         try:
             decoder = zlib.decompressobj()
@@ -293,17 +287,13 @@ class SyncStore:
                 raise ValueError
             return raw
         except (ValueError, zlib.error, TypeError) as exc:
-            raise BridgeError(
-                "sync_blob_invalid", "El contenido almacenado no supera la verificación."
-            ) from exc
+            raise BridgeError("sync_blob_invalid", "error.sync_blob_invalid.content_check") from exc
 
     def _capture_manifest(self, value: dict, db: sqlite3.Connection, depth: int, budget: list[int]) -> dict:
         if depth > self.MAX_RELATED_DEPTH:
-            raise BridgeError(
-                "sync_capture_too_large", "La captura contiene demasiados niveles relacionados."
-            )
+            raise BridgeError("sync_capture_too_large", "error.sync_capture_too_large.depth")
         if not isinstance(value, dict):
-            raise BridgeError("sync_capture_invalid", "La captura no tiene el formato esperado.")
+            raise BridgeError("sync_capture_invalid", "error.sync_capture_invalid.format")
         base = {
             key: item
             for key, item in value.items()
@@ -311,7 +301,7 @@ class SyncStore:
         }
         budget[0] += len(canonical(base))
         if budget[0] > self.MAX_CAPTURE_BYTES:
-            raise BridgeError("sync_capture_too_large", "La captura supera el límite permitido.")
+            raise BridgeError("sync_capture_too_large")
         collections = {}
         for field in ("events", "raw_records", "attachments"):
             refs = []
@@ -325,7 +315,7 @@ class SyncStore:
                 raw = canonical(body)
                 budget[0] += len(raw)
                 if budget[0] > self.MAX_CAPTURE_BYTES:
-                    raise BridgeError("sync_capture_too_large", "La captura supera el límite permitido.")
+                    raise BridgeError("sync_capture_too_large")
                 refs.append(self._put_blob(raw, db))
             ref_chunks = [
                 refs[pos : pos + self.REFERENCE_CHUNK] for pos in range(0, len(refs), self.REFERENCE_CHUNK)
@@ -352,51 +342,47 @@ class SyncStore:
             except BridgeError:
                 raise
             except (TypeError, ValueError, sqlite3.Error) as exc:
-                raise BridgeError("sync_capture_invalid", "No se pudo almacenar la captura.") from exc
+                raise BridgeError("sync_capture_invalid", "error.sync_capture_invalid.store") from exc
 
     def _restore_capture(self, manifest: dict, db: sqlite3.Connection, depth: int, budget: list[int]) -> dict:
         if depth > self.MAX_RELATED_DEPTH:
-            raise BridgeError("sync_blob_invalid", "La captura almacenada no es válida.")
+            raise BridgeError("sync_blob_invalid", "error.sync_blob_invalid.capture")
         result = {
             key: value for key, value in manifest.items() if key not in {"_sync_collections", "_sync_related"}
         }
         budget[0] += len(canonical(result))
         if budget[0] > self.MAX_CAPTURE_BYTES:
-            raise BridgeError("sync_blob_invalid", "La captura almacenada supera el límite permitido.")
+            raise BridgeError("sync_blob_invalid", "error.sync_blob_invalid.capture_limit")
         collections = manifest.get("_sync_collections")
         if not isinstance(collections, dict):
-            raise BridgeError("sync_blob_invalid", "La captura almacenada no es válida.")
+            raise BridgeError("sync_blob_invalid", "error.sync_blob_invalid.capture")
         for field in ("events", "raw_records", "attachments"):
             entries = []
             chunks = collections.get(field)
             if not isinstance(chunks, list):
-                raise BridgeError("sync_blob_invalid", "La captura almacenada no es válida.")
+                raise BridgeError("sync_blob_invalid", "error.sync_blob_invalid.capture")
             for chunk_ref in chunks:
                 try:
                     chunk_raw = self._get_blob(chunk_ref, db)
                     budget[0] += len(chunk_raw)
                     if budget[0] > self.MAX_CAPTURE_BYTES:
-                        raise BridgeError(
-                            "sync_blob_invalid", "La captura almacenada supera el límite permitido."
-                        )
+                        raise BridgeError("sync_blob_invalid", "error.sync_blob_invalid.capture_limit")
                     chunk = json.loads(chunk_raw)
                 except BridgeError:
                     raise
                 except (UnicodeDecodeError, ValueError) as exc:
-                    raise BridgeError("sync_blob_invalid", "La captura almacenada no es válida.") from exc
+                    raise BridgeError("sync_blob_invalid", "error.sync_blob_invalid.capture") from exc
                 if not isinstance(chunk, list) or len(chunk) > self.REFERENCE_CHUNK:
-                    raise BridgeError("sync_blob_invalid", "La captura almacenada no es válida.")
+                    raise BridgeError("sync_blob_invalid", "error.sync_blob_invalid.capture")
                 for key in chunk:
                     raw = self._get_blob(key, db)
                     budget[0] += len(raw)
                     if budget[0] > self.MAX_CAPTURE_BYTES:
-                        raise BridgeError(
-                            "sync_blob_invalid", "La captura almacenada supera el límite permitido."
-                        )
+                        raise BridgeError("sync_blob_invalid", "error.sync_blob_invalid.capture_limit")
                     try:
                         entries.append(json.loads(raw))
                     except (UnicodeDecodeError, ValueError) as exc:
-                        raise BridgeError("sync_blob_invalid", "La captura almacenada no es válida.") from exc
+                        raise BridgeError("sync_blob_invalid", "error.sync_blob_invalid.capture") from exc
             result[field] = entries
         for attachment in result["attachments"]:
             if "data_base64_ref" in attachment:
@@ -405,17 +391,15 @@ class SyncStore:
                     raw = self._get_blob(ref, db)
                     budget[0] += len(raw)
                     if budget[0] > self.MAX_CAPTURE_BYTES:
-                        raise BridgeError(
-                            "sync_blob_invalid", "La captura almacenada supera el límite permitido."
-                        )
+                        raise BridgeError("sync_blob_invalid", "error.sync_blob_invalid.capture_limit")
                     attachment["data_base64"] = json.loads(raw)
                 except BridgeError:
                     raise
                 except (UnicodeDecodeError, ValueError) as exc:
-                    raise BridgeError("sync_blob_invalid", "El archivo almacenado no es válido.") from exc
+                    raise BridgeError("sync_blob_invalid", "error.sync_blob_invalid.archive") from exc
         related = manifest.get("_sync_related", [])
         if not isinstance(related, list):
-            raise BridgeError("sync_blob_invalid", "La captura almacenada no es válida.")
+            raise BridgeError("sync_blob_invalid", "error.sync_blob_invalid.capture")
         result["related_conversations"] = [
             self._restore_capture(item, db, depth + 1, budget) for item in related
         ]
@@ -428,15 +412,15 @@ class SyncStore:
                     return self.get_capture(identifier, db=conn)
             row = db.execute("SELECT manifest FROM captures WHERE id=?", (identifier,)).fetchone()
             if row is None:
-                raise BridgeError("sync_capture_not_found", "No existe esa captura.")
+                raise BridgeError("sync_capture_not_found")
             manifest = json.loads(row[0])
             if digest(manifest) != identifier:
-                raise BridgeError("sync_blob_invalid", "La captura almacenada no supera la verificación.")
+                raise BridgeError("sync_blob_invalid", "error.sync_blob_invalid.capture_check")
             return self._restore_capture(manifest, db, 0, [0])
         except BridgeError:
             raise
         except (sqlite3.Error, UnicodeDecodeError, ValueError, TypeError) as exc:
-            raise BridgeError("sync_blob_invalid", "La captura almacenada no se puede leer.") from exc
+            raise BridgeError("sync_blob_invalid", "error.sync_blob_invalid.capture_unreadable") from exc
 
     def put_context(self, messages: list[dict], *, db: sqlite3.Connection | None = None) -> list[str]:
         with self._write_db(db) as conn:
@@ -447,7 +431,7 @@ class SyncStore:
                     raw = canonical(message)
                     total += len(raw)
                     if total > self.MAX_CAPTURE_BYTES:
-                        raise BridgeError("sync_capture_too_large", "El contexto supera el límite permitido.")
+                        raise BridgeError("sync_capture_too_large", "error.sync_capture_too_large.context")
                     refs.append(self._put_blob(raw, conn))
                 ref_chunks = [
                     refs[pos : pos + self.REFERENCE_CHUNK]
@@ -463,7 +447,7 @@ class SyncStore:
             except BridgeError:
                 raise
             except (TypeError, ValueError, sqlite3.Error) as exc:
-                raise BridgeError("sync_context_invalid", "No se pudo almacenar el contexto.") from exc
+                raise BridgeError("sync_context_invalid") from exc
 
     def get_context(self, refs: list[str], *, db: sqlite3.Connection | None = None) -> list[dict]:
         try:
@@ -475,48 +459,40 @@ class SyncStore:
             for ref in refs:
                 row = db.execute("SELECT manifest FROM contexts WHERE id=?", (ref,)).fetchone()
                 if row is None:
-                    raise BridgeError("sync_context_not_found", "No existe ese contexto.")
+                    raise BridgeError("sync_context_not_found")
                 manifest = json.loads(row[0])
                 if digest(manifest) != ref:
-                    raise BridgeError(
-                        "sync_blob_invalid", "El contexto almacenado no supera la verificación."
-                    )
+                    raise BridgeError("sync_blob_invalid", "error.sync_blob_invalid.context_check")
                 for chunk_ref in manifest.get("chunks", []):
                     try:
                         chunk_raw = self._get_blob(chunk_ref, db)
                         budget += len(chunk_raw)
                         if budget > self.MAX_CAPTURE_BYTES:
-                            raise BridgeError(
-                                "sync_blob_invalid", "El contexto almacenado supera el límite permitido."
-                            )
+                            raise BridgeError("sync_blob_invalid", "error.sync_blob_invalid.context_limit")
                         chunk = json.loads(chunk_raw)
                     except BridgeError:
                         raise
                     except (UnicodeDecodeError, ValueError) as exc:
-                        raise BridgeError(
-                            "sync_blob_invalid", "El contexto almacenado no es válido."
-                        ) from exc
+                        raise BridgeError("sync_blob_invalid", "error.sync_blob_invalid.context") from exc
                     if not isinstance(chunk, list) or len(chunk) > self.REFERENCE_CHUNK:
-                        raise BridgeError("sync_blob_invalid", "El contexto almacenado no es válido.")
+                        raise BridgeError("sync_blob_invalid", "error.sync_blob_invalid.context")
                     for key in chunk:
                         raw = self._get_blob(key, db)
                         budget += len(raw)
                         if budget > self.MAX_CAPTURE_BYTES:
-                            raise BridgeError(
-                                "sync_blob_invalid", "El contexto almacenado supera el límite permitido."
-                            )
+                            raise BridgeError("sync_blob_invalid", "error.sync_blob_invalid.context_limit")
                         result.append(json.loads(raw))
             return result
         except BridgeError:
             raise
         except (sqlite3.Error, UnicodeDecodeError, ValueError, TypeError) as exc:
-            raise BridgeError("sync_blob_invalid", "El contexto almacenado no se puede leer.") from exc
+            raise BridgeError("sync_blob_invalid", "error.sync_blob_invalid.context_unreadable") from exc
 
     @classmethod
     def validate_backup(cls, path: Path) -> dict:
         path = Path(path)
         if path.is_symlink() or not path.is_file():
-            raise BridgeError("sync_backup_invalid", "La copia no es un archivo válido.")
+            raise BridgeError("sync_backup_invalid", "error.sync_backup_invalid.file")
         try:
             db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
             try:
@@ -528,19 +504,19 @@ class SyncStore:
                     or version != cls.SCHEMA_VERSION
                     or not {"links", "revisions", "captures", "contexts", "blobs"}.issubset(tables)
                 ):
-                    raise BridgeError("sync_backup_invalid", "La copia no pasa la validación del almacén.")
+                    raise BridgeError("sync_backup_invalid", "error.sync_backup_invalid.store")
                 return {"path": str(path), "schema_version": version, "integrity": integrity}
             finally:
                 db.close()
         except BridgeError:
             raise
         except (OSError, sqlite3.Error) as exc:
-            raise BridgeError("sync_backup_invalid", "La copia no se puede validar.") from exc
+            raise BridgeError("sync_backup_invalid", "error.sync_backup_invalid.unverifiable") from exc
 
     def backup(self, output: Path) -> dict:
         output = Path(output)
         if os.path.lexists(output):
-            raise BridgeError("sync_backup_exists", "La ruta de copia ya existe.")
+            raise BridgeError("sync_backup_exists")
         temp: Path | None = None
         try:
             output.parent.mkdir(parents=True, exist_ok=True)
@@ -575,8 +551,8 @@ class SyncStore:
                 except OSError:
                     pass
             if isinstance(exc, FileExistsError):
-                raise BridgeError("sync_backup_exists", "La ruta de copia ya existe.") from exc
-            raise BridgeError("sync_backup_failed", "No se pudo completar la copia.") from exc
+                raise BridgeError("sync_backup_exists") from exc
+            raise BridgeError("sync_backup_failed") from exc
 
     @staticmethod
     def _publish_exclusive(temp: Path, destination: Path) -> None:
@@ -610,9 +586,7 @@ class SyncStore:
         except FileNotFoundError:
             return False
         except OSError as exc:
-            raise BridgeError(
-                "sync_restore_unsafe", "No se pudo validar la carpeta de restauración."
-            ) from exc
+            raise BridgeError("sync_restore_unsafe", "error.sync_restore_unsafe.unverifiable") from exc
         return bool(getattr(metadata, "st_file_attributes", 0) & 0x400)
 
     @classmethod
@@ -620,12 +594,12 @@ class SyncStore:
         cls.validate_backup(backup)
         root = Path(root)
         if cls._is_directory_alias(root):
-            raise BridgeError("sync_restore_unsafe", "La carpeta de restauración no puede ser un alias.")
+            raise BridgeError("sync_restore_unsafe", "error.sync_restore_unsafe.alias")
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
         if cls._is_directory_alias(root):
-            raise BridgeError("sync_restore_unsafe", "La carpeta de restauración no puede ser un alias.")
+            raise BridgeError("sync_restore_unsafe", "error.sync_restore_unsafe.alias")
         if any(root.iterdir()):
-            raise BridgeError("sync_restore_not_empty", "La restauración requiere una carpeta vacía.")
+            raise BridgeError("sync_restore_not_empty")
         temp: Path | None = None
         try:
             fd, temp_name = tempfile.mkstemp(prefix=".sync.sqlite3.restore-", dir=root)
@@ -640,9 +614,9 @@ class SyncStore:
                 src.close()
             cls.validate_backup(temp)
             if cls._is_directory_alias(root):
-                raise BridgeError("sync_restore_unsafe", "La carpeta de restauración no puede ser un alias.")
+                raise BridgeError("sync_restore_unsafe", "error.sync_restore_unsafe.alias")
             if any(entry != temp for entry in root.iterdir()):
-                raise BridgeError("sync_restore_not_empty", "La restauración requiere una carpeta vacía.")
+                raise BridgeError("sync_restore_not_empty")
             cls._publish_exclusive(temp, root / "sync.sqlite3")
             temp = None
             cls._fsync_directory(root)
@@ -662,4 +636,4 @@ class SyncStore:
                         temp.unlink()
                 except OSError:
                     pass
-            raise BridgeError("sync_restore_failed", "No se pudo restaurar el almacén.") from exc
+            raise BridgeError("sync_restore_failed") from exc

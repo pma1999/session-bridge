@@ -427,3 +427,161 @@ def test_conflict_hint_gives_a_version_when_one_assistant_has_two_continuations(
     assert "Varias continuaciones" in out
     assert "sync select ln_abc rv_aaaaaaaaa" in out and "sync select ln_abc rv_bbbbbbbbb" in out
     assert "sync select ln_abc codex-win" in out and "VERSIÓN" not in out
+
+
+def test_a_command_group_without_a_subcommand_shows_its_help_without_an_error(monkeypatch, capsys):
+    global fake
+    fake = FakeBridge()
+    code, output = _run_main(monkeypatch, capsys, ["profile"])
+    assert code == 0
+    assert "profile" in output.out
+    assert "internal_error" not in output.out + output.err
+
+
+def _conflict_link():
+    return {
+        "id": "ln_abc",
+        "name": "Daily",
+        "state": "conflict",
+        "selected_head": None,
+        "last_error": "sync_worker_io",
+        "heads": [
+            {"id": "rv_0c79fa39dab1", "source_key": "codex-win:orig", "created_at": "2026-10-20T10:00:00Z"},
+            {"id": "rv_362e69c99105", "source_key": "claude-win:copy", "created_at": None},
+        ],
+        "endpoints": [
+            _synced_endpoint("codex-win:orig", "superseded", "original"),
+            _synced_endpoint("claude-win:copy"),
+            _synced_endpoint("codex-win:newer"),
+        ],
+    }
+
+
+def _transfer():
+    from session_bridge.models import Fidelity, Transfer
+
+    return Transfer(
+        id="tr_abc",
+        identity="i",
+        state="completed",
+        mode="native",
+        source_key="local:abc",
+        target_profile="codex-win",
+        cwd="C:/Projects/app",
+        created_at="2026-10-20T10:00:00Z",
+        updated_at="2026-10-20T10:00:00Z",
+        archive="C:/a.zip",
+        fidelity=Fidelity(warnings=["source_truncated:3", "archive_only_present", "a_future_code"]),
+    )
+
+
+def test_list_transfers_and_sync_status_read_in_english(monkeypatch, capsys, lang):
+    global fake
+    lang("en")
+    fake = FakeBridge()
+    fake.refs.append(SessionRef(profile_id="local", native_id="def", tool="claude", title="  "))
+    monkeypatch.setenv("COLUMNS", "200")
+    code, result = _run_main(monkeypatch, capsys, ["--lang", "en", "list"])
+    assert code == 0, result
+    assert result.out.splitlines()[0].split() == ["Title", "Assistant", "Updated", "ID"]
+    assert "Untitled" in result.out and "2 conversations in" in result.err
+    fake.refs = []
+    code, result = _run_main(monkeypatch, capsys, ["--lang", "en", "list", "--search", "x"])
+    assert "No conversations match. Use --all-projects" in result.out
+    fake.transfers = lambda: [_transfer()]
+    code, result = _run_main(monkeypatch, capsys, ["--lang", "en", "transfers"])
+    assert code == 0 and "Conversion verified" in result.out and "tr_abc" in result.out
+    out = " ".join(_render_link(monkeypatch, _conflict_link()).split())
+    assert "Two continuations" in out and "current session newer · +1 earlier session" in out
+    assert "from the original Codex conversation" in out and "sessionbridge sync select ln_abc codex-win" in out
+
+
+def test_errors_read_in_the_language_chosen_for_the_run(monkeypatch, capsys):
+    global fake
+    fake = FakeBridge()
+    code, result = _run_main(monkeypatch, capsys, ["list", "--since", "tomorrow", "--lang", "en"])
+    assert code == 2 and "Error [invalid_date]" in result.err and "fecha" not in result.err.lower()
+    code, result = _run_main(monkeypatch, capsys, ["list", "--since", "tomorrow", "--json", "--lang", "en"])
+    error = json.loads(result.out)["error"]
+    assert error["code"] == "invalid_date" and error["key"].startswith("error.invalid_date")
+    assert "date" in error["message"].lower()
+
+
+# Words in this module's sample data and the assistants' product names, which no catalog holds.
+DATA_WORDS = {
+    "Claude", "Code", "Codex", "OpenCode", "sessionbridge", "sync", "select", "title", "bold", "body",
+    "Daily", "ln", "abc", "def", "rv", "tr", "codex", "claude", "win", "orig", "copy", "newer", "local",
+    "Projects", "app", "zip", "id", "all", "projects", "since", "native",
+}
+
+
+def test_cli_output_has_no_text_outside_the_catalogs(monkeypatch, capsys, pseudo):
+    import re
+
+    global fake
+    fake = FakeBridge()
+    fake.refs.append(SessionRef(profile_id="local", native_id="def", tool="claude", title="  "))
+    fake.transfers = lambda: [_transfer()]
+    monkeypatch.setenv("COLUMNS", "200")
+    shown = []
+    for argv in (
+        ["list"],
+        ["list", "--all-projects"],
+        ["show", "local:abc"],
+        ["transfers"],
+        ["language"],
+        ["list", "--since", "tomorrow"],
+        ["convert", "local:abc"],
+    ):
+        code, result = _run_main(monkeypatch, capsys, ["--lang", "xx", *argv])
+        shown.append(result.out + result.err)
+    fake.refs = []
+    shown.append("".join(_run_main(monkeypatch, capsys, ["--lang", "xx", "list"])[1]))
+    for value in (_conflict_link(), {**_conflict_link(), "state": "synced", "selected_head": "rv_0c79fa39dab1"}):
+        shown.append(_render_link(monkeypatch, value))
+    for state in cli.WORKER_STATES:
+        shown.append(_render_worker(monkeypatch, {"state": state, "pid": 7, "heartbeat": 1.0, "started_at": 1.0}))
+    shown.append(_render_worker(monkeypatch, {"state": "running", "started": True, "last_error": "sync_worker_io"}))
+    shown.append(_render_worker(monkeypatch, {"state": "stopped", "acknowledged": True}))
+    stray = set(re.findall(r"[^\W\d_]{2,}", pseudo("\n".join(shown)))) - DATA_WORDS
+    assert stray == set(), "\n".join(shown)
+
+
+def _render_worker(monkeypatch, value):
+    import io
+
+    from rich.console import Console
+
+    stream = io.StringIO()
+    monkeypatch.setattr(cli, "_console_out", Console(file=stream, width=100, markup=False, highlight=False))
+    cli._emit_worker(value)
+    return " ".join(stream.getvalue().split())
+
+
+def test_worker_status_reads_as_sentences_in_both_languages(monkeypatch, lang):
+    import time
+
+    running = {"running": True, "state": "running", "healthy": True, "pid": 42, "heartbeat": time.time()}
+    assert _render_worker(monkeypatch, running) == "El seguimiento está en marcha. Proceso 42 Última señal ahora"
+    lang("en")
+    assert _render_worker(monkeypatch, {"running": False, "state": "stopped"}) == "Tracking is stopped."
+    stopped = {"running": False, "state": "stopped", "acknowledged": True, "last_error": "sync_worker_io"}
+    out = _render_worker(monkeypatch, stopped)
+    assert out.startswith("Tracking stopped.") and "[sync_worker_io]" in out
+
+
+def test_doctor_text_shows_capability_reasons_as_sentences(monkeypatch, capsys, lang):
+    global fake
+    lang("en")
+    fake = FakeBridge()
+    fake.doctor = lambda: {"profiles": [{"id": "codex-win", "capability": {"reason": "capability.verified"}}]}
+    code, result = _run_main(monkeypatch, capsys, ["--lang", "en", "doctor"])
+    out = " ".join(result.out.split())
+    assert code == 0
+    assert i18n_t("capability.verified") in out and "capability.verified" not in out
+
+
+def i18n_t(key):
+    from session_bridge import i18n
+
+    return i18n.t(key)

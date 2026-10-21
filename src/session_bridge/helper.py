@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from pathlib import PurePosixPath
@@ -10,6 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from . import i18n
 from .errors import BridgeError
 from .models import NativeReceipt, Profile, ProjectedMessage, SessionRef, WriteRequest
 
@@ -77,16 +79,14 @@ def _profile(profile: Profile) -> Profile:
         or not PurePosixPath(profile.helper).is_absolute()
         or "\x00" in profile.helper
     ):
-        raise BridgeError(
-            "invalid_wsl_profile", "El helper solo atiende perfiles WSL con distribución configurada."
-        )
+        raise BridgeError("invalid_wsl_profile", "error.invalid_wsl_profile.helper")
     return profile
 
 
 def dispatch(op: str, raw_args: dict[str, Any]) -> Any:
     """Validate one allowlisted operation, then delegate to local native adapters."""
     if op not in OPS:
-        raise BridgeError("unsupported_helper_operation", "La operación no está permitida para el helper.")
+        raise BridgeError("unsupported_helper_operation")
     try:
         if op in {"discover", "capability"}:
             args = ProfileArgs.model_validate(raw_args)
@@ -101,7 +101,7 @@ def dispatch(op: str, raw_args: dict[str, Any]) -> Any:
             args = ReadArgs.model_validate(raw_args)
             profile = _profile(args.profile)
             if args.ref.profile_id != profile.id or args.ref.tool != profile.tool:
-                raise BridgeError("profile_mismatch", "La sesión no pertenece al perfil indicado.")
+                raise BridgeError("profile_mismatch", "error.profile_mismatch.session")
             module = __import__(f"session_bridge.readers.{profile.tool}", fromlist=["read"])
             return module.read(profile, args.ref, snapshot=args.snapshot)
         if op == "write":
@@ -131,29 +131,29 @@ def dispatch(op: str, raw_args: dict[str, Any]) -> Any:
 
         return resume_argv(_profile(args.profile), args.native_id, args.cwd)
     except ValidationError:
-        raise BridgeError(
-            "invalid_helper_arguments", "Los argumentos del helper no cumplen el protocolo v1."
-        ) from None
+        raise BridgeError("invalid_helper_arguments") from None
 
 
 def main() -> None:
     """Read one bounded JSON packet and write exactly one JSON response."""
+    # A Windows CLI that sends no language predates the catalogs and shows texts as they come: Spanish.
+    i18n.use(i18n.normalize(os.environ.get("SESSIONBRIDGE_LANG")) or "es", source="environment")
     raw = sys.stdin.buffer.read(MAX_REQUEST_BYTES + 1)
     try:
         if len(raw) > MAX_REQUEST_BYTES:
-            raise BridgeError("request_too_large", "La solicitud supera el límite del protocolo.")
+            raise BridgeError("request_too_large", "error.request_too_large.protocol")
         packet = Packet.model_validate_json(raw)
         if packet.protocol_version != 1:
-            raise BridgeError("unsupported_protocol", "La versión del protocolo no está soportada.")
+            raise BridgeError("unsupported_protocol")
         data = dispatch(packet.op, packet.args)
         response = {"protocol_version": 1, "ok": True, "data": _jsonable(data)}
     except BridgeError as exc:
         response = {"protocol_version": 1, "ok": False, "error": exc.as_dict()}
     except (ValidationError, ValueError):
-        error = BridgeError("invalid_helper_request", "La solicitud del helper no cumple el protocolo v1.")
+        error = BridgeError("invalid_helper_request")
         response = {"protocol_version": 1, "ok": False, "error": error.as_dict()}
     except Exception:  # noqa: BLE001 - protocol responses must not leak traces or session content
-        error = BridgeError("helper_operation_failed", "El helper no pudo completar la operación.")
+        error = BridgeError("helper_operation_failed")
         response = {"protocol_version": 1, "ok": False, "error": error.as_dict()}
     sys.stdout.write(json.dumps(response, ensure_ascii=False, separators=(",", ":")) + "\n")
 

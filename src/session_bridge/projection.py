@@ -7,13 +7,11 @@ from .models import Conversation, Fidelity, ProjectedMessage, Projection
 
 def project(conversation: Conversation, *, context="current", context_from=None, variant=None) -> Projection:
     if context not in {"current", "all"}:
-        raise BridgeError("invalid_context", "El contexto debe ser current o all.")
+        raise BridgeError("invalid_context")
     # The chosen version first; the full history is then that version's lineage, never the others.
     conversation = history.select(conversation, variant)
     if conversation.context_ambiguous and context == "current" and not context_from:
-        raise BridgeError(
-            "ambiguous_context", "El contexto es ambiguo; elige --context-from o --context all."
-        )
+        raise BridgeError("ambiguous_context")
     lineage = history.lineage(conversation)
     if context == "all":
         selected = [e for e, kept in zip(conversation.events, lineage, strict=True) if kept]
@@ -23,16 +21,12 @@ def project(conversation: Conversation, *, context="current", context_from=None,
     if context_from:
         matches = [i for i, e in enumerate(conversation.events) if e.id == context_from]
         if len(matches) != 1:
-            raise BridgeError(
-                "unknown_context_point", "No hay un punto de contexto único con ese identificador."
-            )
+            raise BridgeError("unknown_context_point", "error.unknown_context_point.identifier")
         # Explicit selection can disambiguate a native branch, but still does not revive other branches.
         selected = conversation.events[matches[0] :]
         selected = [e for e in selected if e.active or e is selected[0]]
         if not lineage[matches[0]]:
-            raise BridgeError(
-                "unknown_context_point", "Ese punto pertenece a otra variante de la conversación."
-            )
+            raise BridgeError("unknown_context_point", "error.unknown_context_point.other_version")
     elif context == "current":
         summaries = [i for i, e in enumerate(selected) if e.kind == "summary"]
         if summaries:
@@ -68,5 +62,5 @@ def project(conversation: Conversation, *, context="current", context_from=None,
         else:
             fidelity.archive_only.append("attachment:" + attachment.id)
     if not messages:
-        raise BridgeError("empty_context", "La selección no contiene mensajes transferibles.")
+        raise BridgeError("empty_context")
     return Projection(messages=messages, fidelity=fidelity, context=context, context_from=context_from)

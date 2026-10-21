@@ -48,7 +48,7 @@ _PIP_FLAGS = ["--disable-pip-version-check", "--no-input"]
 
 
 def _fail(stage: str) -> BridgeError:
-    return BridgeError("bootstrap_failed", "No se pudo preparar el entorno de Session Bridge.", stage=stage)
+    return BridgeError("bootstrap_failed", stage=stage)
 
 
 def _venv_python(venv_dir: Path) -> Path:
@@ -264,7 +264,7 @@ def _install_launcher(launcher: Path, managed_target: Path) -> str:
 def install_wsl(wheel: str | os.PathLike[str], distro: str) -> dict[str, Any]:
     """Install the supplied wheel into a dedicated rootless WSL virtualenv."""
     if not isinstance(distro, str) or not _DISTRO.fullmatch(distro):
-        raise BridgeError("invalid_distro", "El nombre de distribución WSL no es válido.")
+        raise BridgeError("invalid_distro")
     wheel_path = Path(wheel)
     if (
         not wheel_path.is_absolute()
@@ -272,7 +272,7 @@ def install_wsl(wheel: str | os.PathLike[str], distro: str) -> dict[str, Any]:
         or not wheel_path.name.casefold().startswith(("session_bridge-", "session-bridge-"))
         or not wheel_path.is_file()
     ):
-        raise BridgeError("invalid_wheel", "Indica un wheel local válido de Session Bridge.")
+        raise BridgeError("invalid_wheel", "error.invalid_wheel.local")
     home = Path.home()
     root = home / ".local" / "share" / "session-bridge"
     venv_dir = root / "venv"

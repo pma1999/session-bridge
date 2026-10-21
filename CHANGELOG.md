@@ -2,6 +2,19 @@
 
 This file records notable user-facing changes. Version numbers refer to the project package.
 
+## 0.7.0
+
+- Session Bridge now speaks English as well as Spanish: the interactive search and menus, every message and error, warnings, dates, plurals and `--help`, including the sections and options Typer adds itself. Before, everything was in Spanish and `--help` mixed Spanish descriptions with English headings.
+- The language follows the system by default: Spanish when the Windows display language (or `LANGUAGE`, `LC_ALL`, `LC_MESSAGES` or `LANG` elsewhere) is Spanish, English otherwise. `sessionbridge language en|es|auto` saves a choice, `--lang` sets it for one run, and `SESSIONBRIDGE_LANG` sets it for a shell or script.
+- JSON errors also carry the `key` of their text. Codes, JSON fields and archives are unchanged, and the context given to the destination assistant stays in English, so earlier transfers and synchronized conversations are unaffected.
+- Shell completion shows each option's and command's description in the language in use.
+- Capability reasons and fidelity warnings are recorded as codes and shown in the language in use. A warning used to appear as its raw code (for example `source_truncated`); it now reads as a sentence, and so do the capability reasons `doctor` lists.
+- `sync start`, `stop` and `worker-status` say in words whether tracking is running, when it last signalled and its last error. Before, they printed raw fields such as `state: stopped` and a Unix timestamp. `--json` is unchanged.
+- A conversion's native title, used when the source has none, follows the language too: "Imported conversation" or "Conversación importada".
+- The WSL helper writes in the language of the Windows command that calls it. An older helper's Spanish errors are recognised and shown in the language in use.
+- `sessionbridge profile` and other command groups run without a subcommand now show their help and exit successfully. Before, they also printed `internal_error` and exited with 1.
+- Multi-line error details are printed as lines instead of escaped `\x0a` sequences.
+
 ## 0.6.0
 
 - Edited messages: when you edit an earlier message and send it, the other versions of the conversation are no longer lost or treated as an error. The version the source assistant would resume is taken by default, and you can choose another one. The interactive summary shows which version is taken, and offers "Elegir otra variante". Each version is described by when it was written, how many messages follow and the words that differ from the others. `show` lists the versions, and `convert` and `import` take `--variant`.

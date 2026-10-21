@@ -59,12 +59,12 @@ def locate(profile, native_id):
     root = Path(profile.home) / "projects"
     candidates = list(root.glob(f"*/{native_id}.jsonl")) if root.exists() else []
     if len(candidates) > 1:
-        raise BridgeError("native_ambiguous", "Hay varios registros para el mismo identificador nativo.")
+        raise BridgeError("native_ambiguous", "error.native_ambiguous.same_identifier")
     if not candidates:
         return None
     target = candidates[0]
     if target.is_symlink() or not target.resolve().is_relative_to(Path(profile.home).resolve()):
-        raise BridgeError("unsafe_native_path", "La ruta nativa sale del perfil seleccionado.")
+        raise BridgeError("unsafe_native_path", "error.unsafe_native_path.path")
     return target
 
 
@@ -77,7 +77,7 @@ def read_rows(profile, native_id):
         if any(not isinstance(row, dict) for row in rows):
             raise ValueError("invalid native row")
     except (ValueError, OSError):
-        raise BridgeError("native_corrupt", "No se puede verificar el registro nativo.") from None
+        raise BridgeError("native_corrupt", "error.native_corrupt.record") from None
     return path, rows
 
 
@@ -90,10 +90,10 @@ def inspect(profile, native_id):
     children = path.with_suffix("")
     if children.exists():
         if children.is_symlink() or not children.resolve().is_relative_to(Path(profile.home).resolve()):
-            raise BridgeError("unsafe_native_path", "El subárbol nativo sale del perfil seleccionado.")
+            raise BridgeError("unsafe_native_path", "error.unsafe_native_path.subtree")
         for item in sorted(children.rglob("*")):
             if item.is_symlink() or not item.resolve().is_relative_to(Path(profile.home).resolve()):
-                raise BridgeError("unsafe_native_path", "El subárbol nativo contiene un enlace simbólico.")
+                raise BridgeError("unsafe_native_path", "error.unsafe_native_path.symlink")
             if item.is_file():
                 subtree[str(item.relative_to(path.parent))] = item.read_bytes().hex()
     provenance = [row.get("sessionBridge") for row in rows if row.get("type") in {"user", "assistant"}]
@@ -117,17 +117,16 @@ def inspect(profile, native_id):
 
 def write(request):
     if locate(request.profile, request.native_id):
-        raise BridgeError("native_conflict", "El identificador ya existe; reconcilia la operación.")
+        raise BridgeError("native_conflict", "error.native_conflict.exists")
     project_name = os.environ.get("CLAUDE_CODE_PROJECT_DIR_NAME") or re.sub(r"[^a-zA-Z0-9]", "-", request.cwd)
     if not re.fullmatch(r"[a-zA-Z0-9_-]{1,200}", project_name):
         raise BridgeError(
             "native_path_unsupported",
-            "La codificación de carpeta Claude requiere un formato no verificado; usa handoff.",
         )
     directory = Path(request.profile.home) / "projects" / project_name
     root = Path(request.profile.home).resolve()
     if not directory.resolve().is_relative_to(root):
-        raise BridgeError("unsafe_native_path", "La ruta nativa sale del perfil seleccionado.")
+        raise BridgeError("unsafe_native_path", "error.unsafe_native_path.path")
     path = directory / f"{request.native_id}.jsonl"
     try:
         data = "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in transcript(request)).encode(
@@ -136,32 +135,30 @@ def write(request):
         atomic_write(path, data)
     except BridgeError as exc:
         if exc.code == "already_exists":
-            raise BridgeError(
-                "native_conflict", "El identificador ya existe; reconcilia la operación."
-            ) from None
+            raise BridgeError("native_conflict", "error.native_conflict.exists") from None
         raise
     result = inspect(request.profile, request.native_id)
     if result is None:
-        raise BridgeError("native_missing", "El destino desapareció durante la escritura; reconcilia.")
+        raise BridgeError("native_missing", "error.native_missing.vanished")
     return result
 
 
 def messages(profile, native_id):
     value = read_rows(profile, native_id)
     if value is None:
-        raise BridgeError("native_missing", "No existe la conversación nativa.")
+        raise BridgeError("native_missing", "error.native_missing.conversation")
     result = []
     for row in value[1]:
         if row.get("type") not in {"user", "assistant"}:
             continue
         payload = row.get("message", {})
         if not isinstance(payload, dict):
-            raise BridgeError("native_corrupt", "Hay mensajes nativos inválidos.")
+            raise BridgeError("native_corrupt", "error.native_corrupt.messages")
         content = payload.get("content", [])
         if not isinstance(content, (str, list)):
-            raise BridgeError("native_corrupt", "Hay mensajes nativos inválidos.")
+            raise BridgeError("native_corrupt", "error.native_corrupt.messages")
         if isinstance(content, list) and any(not isinstance(part, dict) for part in content):
-            raise BridgeError("native_corrupt", "Hay bloques nativos inválidos.")
+            raise BridgeError("native_corrupt", "error.native_corrupt.blocks")
         text = (
             content
             if isinstance(content, str)

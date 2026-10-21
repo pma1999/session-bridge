@@ -29,7 +29,7 @@ def _root(profile):
 def _tables(con):
     found = [t for t in ("session", "session_v2") if "id" in columns(con, t)]
     if not found:
-        raise BridgeError("source_schema_unsupported", "No se reconoce el esquema de sesiones OpenCode.")
+        raise BridgeError("source_schema_unsupported", "error.source_schema_unsupported.opencode_sessions")
     return found
 
 
@@ -100,7 +100,7 @@ def read(profile, ref, *, snapshot=False):
                     value = dict(row)
                     related[value["id"]] = _session_ref(profile, value, table)
         if session is None:
-            raise BridgeError("source_not_found", "La sesión OpenCode no existe.")
+            raise BridgeError("source_not_found", "error.source_not_found.opencode_session")
         if {"id", "session_id", "data"} <= columns(con, "message"):
             for row in con.execute(
                 "SELECT * FROM message WHERE session_id=? ORDER BY time_created,id", (ref.native_id,)

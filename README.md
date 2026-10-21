@@ -34,7 +34,7 @@ Before the first transfer, make your own backup of any native client data you ca
 
 ## Quick start
 
-Run `sessionbridge` with no command to open one search over every conversation: Claude Code, Codex and OpenCode sessions, and the conversations you keep synchronized (marked ●). Conversations from the directory where you start it come first, under **En esta carpeta**; every other project follows under **En otros proyectos**, so nothing is hidden behind a scope switch. Subagent and helper threads are left out because they belong to their parent conversation.
+Run `sessionbridge` with no command to open one search over every conversation: Claude Code, Codex and OpenCode sessions, and the conversations you keep synchronized (marked ●). Conversations from the directory where you start it come first, under **In this folder**; every other project follows under **In other projects**, so nothing is hidden behind a scope switch. Subagent and helper threads are left out because they belong to their parent conversation.
 
 Type to filter by title, folder, assistant, or ID. Search ignores case and accents and accepts partial words in any order. Use the arrow keys (or Tab) to move, Enter to open, and Esc to go back. Choosing a session asks where to continue it and shows a summary; from there you can convert it, convert it and keep it synchronized, or switch between the current context (from the last compaction) and the full history. If you edited an earlier message, the version the source assistant would resume is taken by default and the summary offers the others. A subagent's request and result travel with the conversation; its steps stay in the archive. A missing working folder or an unsupported target version is explained, with the next step offered. `--all-projects` lists everything by recency without the folder grouping.
 
@@ -57,7 +57,20 @@ sessionbridge transfers
 sessionbridge recover TRANSFER_ID
 ```
 
-Use `sessionbridge profile list` to see the installation IDs available on your machine. Add `--json` for the versioned machine-readable output. JSON and other non-interactive resume commands return launch arguments; invoke them yourself. Interactive prompts and CLI messages are currently in Spanish; code and technical documentation are in English.
+Use `sessionbridge profile list` to see the installation IDs available on your machine. Add `--json` for the versioned machine-readable output. JSON and other non-interactive resume commands return launch arguments; invoke them yourself.
+
+## Language
+
+Session Bridge speaks English and Spanish: the interactive search, every message and error, and `--help`. By default it follows your system: Spanish when the Windows display language (or, elsewhere, `LANGUAGE`, `LC_ALL`, `LC_MESSAGES` or `LANG`) is Spanish, English otherwise.
+
+```text
+sessionbridge language            # show the language in use and where it comes from
+sessionbridge language es         # always use Spanish (saved in settings.json in the data directory)
+sessionbridge language auto       # follow the system again
+sessionbridge --lang en list      # this run only
+```
+
+`SESSIONBRIDGE_LANG=en` or `es` sets it for a shell or a script; `--lang` wins over it, and it wins over the saved choice. The language changes only what people read. Error codes, warning codes, JSON fields and archives are the same in every language, and a JSON error also carries the `key` of its text. The context sent to the destination assistant stays in English, as before, so earlier transfers and synchronized conversations are unaffected. The WSL helper writes in the language of the Windows command that calls it.
 
 ## Native compatibility
 

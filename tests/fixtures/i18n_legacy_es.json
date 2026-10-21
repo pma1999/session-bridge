@@ -1,0 +1,1741 @@
+[
+ {
+  "code": "",
+  "key": "capability.handoff",
+  "text": "Traspaso explícito de contexto, sin historial nativo.",
+  "details": []
+ },
+ {
+  "code": "",
+  "key": "capability.pending_checks",
+  "text": "Compatibilidad nativa pendiente de las cuatro pruebas aisladas; usa handoff explícito.",
+  "details": []
+ },
+ {
+  "code": "",
+  "key": "capability.unverified_version",
+  "text": "Versión nativa no verificada; selecciona explícitamente el modo handoff.",
+  "details": []
+ },
+ {
+  "code": "",
+  "key": "capability.verified",
+  "text": "Persistencia, presentación, reanudación y contexto del modelo verificados para esta versión.",
+  "details": []
+ },
+ {
+  "code": "",
+  "key": "capability.windows_x64_only",
+  "text": "La escritura nativa de esta versión está verificada en Windows x64; en este entorno elige handoff explícito.",
+  "details": []
+ },
+ {
+  "code": "already_exists",
+  "key": "error.already_exists",
+  "text": "El archivo de destino ya existe.",
+  "details": [
+   "path"
+  ]
+ },
+ {
+  "code": "ambiguous_context",
+  "key": "error.ambiguous_context",
+  "text": "El contexto es ambiguo; elige --context-from o --context all.",
+  "details": []
+ },
+ {
+  "code": "ambiguous_session",
+  "key": "error.ambiguous_session",
+  "text": "Elige un identificador de sesión único.",
+  "details": []
+ },
+ {
+  "code": "archive_changed",
+  "key": "error.archive_changed",
+  "text": "El archivo de conservación ha cambiado; no se recuperará.",
+  "details": []
+ },
+ {
+  "code": "attachment_identity",
+  "key": "error.attachment_identity",
+  "text": "Hay identificadores de adjuntos duplicados.",
+  "details": []
+ },
+ {
+  "code": "bootstrap_failed",
+  "key": "error.bootstrap_failed",
+  "text": "No se pudo preparar el entorno de Session Bridge.",
+  "details": [
+   "stage"
+  ]
+ },
+ {
+  "code": "bootstrap_failed",
+  "key": "error.bootstrap_failed.wsl_environment",
+  "text": "No se pudo preparar el entorno de Session Bridge en WSL.",
+  "details": [
+   "stage"
+  ]
+ },
+ {
+  "code": "cancelled",
+  "key": "error.cancelled",
+  "text": "Operación cancelada.",
+  "details": []
+ },
+ {
+  "code": "client_missing",
+  "key": "error.client_missing",
+  "text": "El perfil no tiene ejecutable nativo configurado.",
+  "details": []
+ },
+ {
+  "code": "client_unavailable",
+  "key": "error.client_unavailable",
+  "text": "No se pudo iniciar el cliente nativo.",
+  "details": []
+ },
+ {
+  "code": "client_unavailable",
+  "key": "error.client_unavailable.codex_reader",
+  "text": "No se pudo iniciar el lector nativo Codex.",
+  "details": []
+ },
+ {
+  "code": "cwd_missing",
+  "key": "error.cwd_missing.target",
+  "text": "La carpeta de destino no existe.",
+  "details": []
+ },
+ {
+  "code": "cwd_missing",
+  "key": "error.cwd_missing.target_or_relative",
+  "text": "La carpeta de destino no existe o no es absoluta; indica --cwd.",
+  "details": [
+   "cwd"
+  ]
+ },
+ {
+  "code": "cwd_missing",
+  "key": "error.cwd_missing.working_folder",
+  "text": "La carpeta de trabajo no existe; no se ha iniciado el cliente.",
+  "details": []
+ },
+ {
+  "code": "cwd_required",
+  "key": "error.cwd_required",
+  "text": "Indica la carpeta de trabajo del destino con --cwd.",
+  "details": []
+ },
+ {
+  "code": "cwd_required",
+  "key": "error.cwd_required.wsl_target",
+  "text": "El destino WSL necesita una carpeta Linux absoluta con --cwd.",
+  "details": []
+ },
+ {
+  "code": "discovery_failed",
+  "key": "error.discovery_failed",
+  "text": "No se pudo leer ningún catálogo seleccionado.",
+  "details": [
+   "sources"
+  ]
+ },
+ {
+  "code": "empty_context",
+  "key": "error.empty_context",
+  "text": "La selección no contiene mensajes transferibles.",
+  "details": []
+ },
+ {
+  "code": "empty_projection",
+  "key": "error.empty_projection",
+  "text": "No hay mensajes transferibles.",
+  "details": []
+ },
+ {
+  "code": "handoff_changed",
+  "key": "error.handoff_changed",
+  "text": "Los archivos del traspaso están incompletos o han cambiado.",
+  "details": []
+ },
+ {
+  "code": "helper_operation_failed",
+  "key": "error.helper_operation_failed",
+  "text": "El helper no pudo completar la operación.",
+  "details": []
+ },
+ {
+  "code": "interactive_json_unsupported",
+  "key": "error.interactive_json_unsupported",
+  "text": "El asistente interactivo requiere modo texto.",
+  "details": []
+ },
+ {
+  "code": "interactive_tty_required",
+  "key": "error.interactive_tty_required",
+  "text": "Sin terminal interactiva, indica un comando; prueba `sessionbridge list`.",
+  "details": []
+ },
+ {
+  "code": "internal_error",
+  "key": "error.internal_error",
+  "text": "No se pudo completar la operación.",
+  "details": []
+ },
+ {
+  "code": "invalid_arguments",
+  "key": "error.invalid_arguments",
+  "text": "Argumentos no válidos; consulta --help.",
+  "details": []
+ },
+ {
+  "code": "invalid_arguments",
+  "key": "error.invalid_arguments.cwd_or_all_projects",
+  "text": "Elige --cwd o --all-projects, no ambos.",
+  "details": []
+ },
+ {
+  "code": "invalid_attachment",
+  "key": "error.invalid_attachment.embedded",
+  "text": "Hay un adjunto embebido inválido.",
+  "details": []
+ },
+ {
+  "code": "invalid_attachment",
+  "key": "error.invalid_attachment.regular_files_only",
+  "text": "Solo se pueden incluir archivos regulares explícitos.",
+  "details": []
+ },
+ {
+  "code": "invalid_context",
+  "key": "error.invalid_context",
+  "text": "El contexto debe ser current o all.",
+  "details": []
+ },
+ {
+  "code": "invalid_date",
+  "key": "error.invalid_date",
+  "text": "Las fechas deben tener formato AAAA-MM-DD.",
+  "details": []
+ },
+ {
+  "code": "invalid_distro",
+  "key": "error.invalid_distro",
+  "text": "El nombre de distribución WSL no es válido.",
+  "details": []
+ },
+ {
+  "code": "invalid_helper_arguments",
+  "key": "error.invalid_helper_arguments",
+  "text": "Los argumentos del helper no cumplen el protocolo v1.",
+  "details": []
+ },
+ {
+  "code": "invalid_helper_arguments",
+  "key": "error.invalid_helper_arguments.write_request",
+  "text": "La solicitud de escritura no cumple el protocolo v1.",
+  "details": []
+ },
+ {
+  "code": "invalid_helper_request",
+  "key": "error.invalid_helper_request",
+  "text": "La solicitud del helper no cumple el protocolo v1.",
+  "details": []
+ },
+ {
+  "code": "invalid_mode",
+  "key": "error.invalid_mode",
+  "text": "El modo debe ser native o handoff.",
+  "details": []
+ },
+ {
+  "code": "invalid_model",
+  "key": "error.invalid_model",
+  "text": "OpenCode requiere el modelo en formato proveedor/modelo.",
+  "details": []
+ },
+ {
+  "code": "invalid_native_id",
+  "key": "error.invalid_native_id",
+  "text": "Identificador nativo inválido.",
+  "details": []
+ },
+ {
+  "code": "invalid_operation",
+  "key": "error.invalid_operation",
+  "text": "El identificador de operación planificada no es válido.",
+  "details": []
+ },
+ {
+  "code": "invalid_options",
+  "key": "error.invalid_options.resume_dry_run",
+  "text": "--resume no se combina con --dry-run.",
+  "details": []
+ },
+ {
+  "code": "invalid_options",
+  "key": "error.invalid_options.sync_native",
+  "text": "--sync requiere modo native; --sync-name requiere --sync.",
+  "details": []
+ },
+ {
+  "code": "invalid_options",
+  "key": "error.invalid_options.sync_variant",
+  "text": "--sync sigue la variante actual del origen; no admite --variant.",
+  "details": []
+ },
+ {
+  "code": "invalid_package",
+  "key": "error.invalid_package",
+  "text": "Paquete inválido, inseguro, incompleto o con integridad incorrecta.",
+  "details": []
+ },
+ {
+  "code": "invalid_profile",
+  "key": "error.invalid_profile.folder",
+  "text": "La carpeta del perfil no es válida.",
+  "details": []
+ },
+ {
+  "code": "invalid_profile",
+  "key": "error.invalid_profile.folder_absolute",
+  "text": "La carpeta del perfil debe ser absoluta.",
+  "details": []
+ },
+ {
+  "code": "invalid_profile",
+  "key": "error.invalid_profile.format",
+  "text": "Los datos del perfil no cumplen el formato requerido.",
+  "details": []
+ },
+ {
+  "code": "invalid_profile",
+  "key": "error.invalid_profile.identifier",
+  "text": "El perfil necesita un identificador sencillo sin espacios ni dos puntos.",
+  "details": []
+ },
+ {
+  "code": "invalid_profile",
+  "key": "error.invalid_profile.wsl_fields",
+  "text": "El perfil WSL necesita distribución, Python del ayudante y ruta Linux.",
+  "details": []
+ },
+ {
+  "code": "invalid_tool",
+  "key": "error.invalid_tool",
+  "text": "La herramienta debe ser claude, opencode o codex.",
+  "details": []
+ },
+ {
+  "code": "invalid_wheel",
+  "key": "error.invalid_wheel.file",
+  "text": "Indica el archivo wheel de Session Bridge.",
+  "details": []
+ },
+ {
+  "code": "invalid_wheel",
+  "key": "error.invalid_wheel.local",
+  "text": "Indica un wheel local válido de Session Bridge.",
+  "details": []
+ },
+ {
+  "code": "invalid_wheel",
+  "key": "error.invalid_wheel.package",
+  "text": "El wheel debe pertenecer a Session Bridge.",
+  "details": []
+ },
+ {
+  "code": "invalid_wsl_profile",
+  "key": "error.invalid_wsl_profile.distribution",
+  "text": "La operación requiere un perfil WSL con distribución explícita.",
+  "details": []
+ },
+ {
+  "code": "invalid_wsl_profile",
+  "key": "error.invalid_wsl_profile.helper",
+  "text": "El helper solo atiende perfiles WSL con distribución configurada.",
+  "details": []
+ },
+ {
+  "code": "invalid_wsl_profile",
+  "key": "error.invalid_wsl_profile.helper_python",
+  "text": "El perfil WSL necesita la ruta Linux absoluta del Python ayudante.",
+  "details": []
+ },
+ {
+  "code": "missing_required_arguments",
+  "key": "error.missing_required_arguments.profile_fields",
+  "text": "Indica --id, --tool y --home en modo no interactivo.",
+  "details": [
+   "missing"
+  ]
+ },
+ {
+  "code": "missing_required_arguments",
+  "key": "error.missing_required_arguments.tool",
+  "text": "Indica la herramienta del perfil.",
+  "details": []
+ },
+ {
+  "code": "native_ambiguous",
+  "key": "error.native_ambiguous",
+  "text": "Hay varios registros para el identificador nativo.",
+  "details": []
+ },
+ {
+  "code": "native_ambiguous",
+  "key": "error.native_ambiguous.same_identifier",
+  "text": "Hay varios registros para el mismo identificador nativo.",
+  "details": []
+ },
+ {
+  "code": "native_changed",
+  "key": "error.native_changed",
+  "text": "El destino cambió durante la verificación; reconcilia.",
+  "details": []
+ },
+ {
+  "code": "native_conflict",
+  "key": "error.native_conflict.exists",
+  "text": "El identificador ya existe; reconcilia la operación.",
+  "details": []
+ },
+ {
+  "code": "native_conflict",
+  "key": "error.native_conflict.unattributed",
+  "text": "No se pudo atribuir el destino a esta operación; reconcilia.",
+  "details": []
+ },
+ {
+  "code": "native_corrupt",
+  "key": "error.native_corrupt.blocks",
+  "text": "Hay bloques nativos inválidos.",
+  "details": []
+ },
+ {
+  "code": "native_corrupt",
+  "key": "error.native_corrupt.codex_messages",
+  "text": "Hay mensajes nativos Codex inválidos.",
+  "details": []
+ },
+ {
+  "code": "native_corrupt",
+  "key": "error.native_corrupt.identifier",
+  "text": "El identificador del registro nativo no coincide.",
+  "details": []
+ },
+ {
+  "code": "native_corrupt",
+  "key": "error.native_corrupt.messages",
+  "text": "Hay mensajes nativos inválidos.",
+  "details": []
+ },
+ {
+  "code": "native_corrupt",
+  "key": "error.native_corrupt.record",
+  "text": "No se puede verificar el registro nativo.",
+  "details": []
+ },
+ {
+  "code": "native_import_failed",
+  "key": "error.native_import_failed",
+  "text": "OpenCode rechazó la importación; reconcilia antes de reintentar.",
+  "details": []
+ },
+ {
+  "code": "native_limit",
+  "key": "error.native_limit.context",
+  "text": "El contexto supera el límite nativo verificado; elige un punto de contexto o --mode handoff. No se truncará el historial.",
+  "details": [
+   "limit",
+   "messages"
+  ]
+ },
+ {
+  "code": "native_limit",
+  "key": "error.native_limit.decompressed",
+  "text": "El historial descomprimido supera el límite explícito.",
+  "details": []
+ },
+ {
+  "code": "native_limit",
+  "key": "error.native_limit.grew",
+  "text": "El historial creció por encima del límite de lectura explícito.",
+  "details": []
+ },
+ {
+  "code": "native_limit",
+  "key": "error.native_limit.history_size",
+  "text": "El historial supera 128 MiB; selecciona un punto de contexto o handoff.",
+  "details": []
+ },
+ {
+  "code": "native_limit",
+  "key": "error.native_limit.opencode_messages",
+  "text": "Esta versión de OpenCode admite como máximo 9362 mensajes por importación nativa. Conserva el archivo completo y selecciona handoff o un punto de contexto explícito; no se ha truncado nada.",
+  "details": [
+   "max_messages",
+   "message_count"
+  ]
+ },
+ {
+  "code": "native_limit",
+  "key": "error.native_limit.read_limit",
+  "text": "El historial nativo supera el límite de lectura explícito.",
+  "details": []
+ },
+ {
+  "code": "native_missing",
+  "key": "error.native_missing.codex_conversation",
+  "text": "No existe la conversación nativa Codex.",
+  "details": []
+ },
+ {
+  "code": "native_missing",
+  "key": "error.native_missing.conversation",
+  "text": "No existe la conversación nativa.",
+  "details": []
+ },
+ {
+  "code": "native_missing",
+  "key": "error.native_missing.resume_empty",
+  "text": "El destino no existe; reanudarlo podría crear una sesión vacía.",
+  "details": []
+ },
+ {
+  "code": "native_missing",
+  "key": "error.native_missing.target",
+  "text": "El destino ya no existe.",
+  "details": []
+ },
+ {
+  "code": "native_missing",
+  "key": "error.native_missing.vanished",
+  "text": "El destino desapareció durante la escritura; reconcilia.",
+  "details": []
+ },
+ {
+  "code": "native_operation_failed",
+  "key": "error.native_operation_failed",
+  "text": "La operación quedó pendiente de recuperación. Se comprobará el destino antes de reintentar.",
+  "details": [
+   "transfer_id"
+  ]
+ },
+ {
+  "code": "native_path_unsupported",
+  "key": "error.native_path_unsupported",
+  "text": "La codificación de carpeta Claude requiere un formato no verificado; usa handoff.",
+  "details": []
+ },
+ {
+  "code": "native_read_failed",
+  "key": "error.native_read_failed.conversation",
+  "text": "OpenCode no pudo leer la conversación nativa.",
+  "details": []
+ },
+ {
+  "code": "native_read_failed",
+  "key": "error.native_read_failed.persisted_record",
+  "text": "OpenCode no devolvió un registro persistido verificable.",
+  "details": []
+ },
+ {
+  "code": "native_read_failed",
+  "key": "error.native_read_failed.record",
+  "text": "OpenCode no devolvió un registro verificable.",
+  "details": []
+ },
+ {
+  "code": "native_read_failed",
+  "key": "error.native_read_failed.unexpected",
+  "text": "OpenCode devolvió un identificador o historial inesperado.",
+  "details": []
+ },
+ {
+  "code": "native_rpc_failed",
+  "key": "error.native_rpc_failed.interrupted",
+  "text": "Se interrumpió la comunicación con Codex.",
+  "details": []
+ },
+ {
+  "code": "native_rpc_failed",
+  "key": "error.native_rpc_failed.invalid_response",
+  "text": "Codex no devolvió una respuesta nativa válida.",
+  "details": []
+ },
+ {
+  "code": "native_rpc_failed",
+  "key": "error.native_rpc_failed.rejected",
+  "text": "Codex rechazó la consulta nativa.",
+  "details": [
+   "method"
+  ]
+ },
+ {
+  "code": "native_rpc_method",
+  "key": "error.native_rpc_method",
+  "text": "Esta conexión solo permite consultar y nombrar el historial.",
+  "details": []
+ },
+ {
+  "code": "native_schema_unsupported",
+  "key": "error.native_schema_unsupported.history",
+  "text": "No se reconoce el historial nativo OpenCode verificado.",
+  "details": []
+ },
+ {
+  "code": "native_schema_unsupported",
+  "key": "error.native_schema_unsupported.schema",
+  "text": "No se reconoce el esquema nativo OpenCode verificado.",
+  "details": []
+ },
+ {
+  "code": "native_timeout",
+  "key": "error.native_timeout.client",
+  "text": "El cliente agotó el tiempo; reconcilia antes de reintentar.",
+  "details": []
+ },
+ {
+  "code": "native_timeout",
+  "key": "error.native_timeout.codex_verification",
+  "text": "La verificación nativa Codex agotó el tiempo.",
+  "details": [
+   "method"
+  ]
+ },
+ {
+  "code": "native_unavailable",
+  "key": "error.native_unavailable",
+  "text": "La conversión nativa no está verificada para este destino. Puedes elegir explícitamente --mode handoff.",
+  "details": [
+   "capability"
+  ]
+ },
+ {
+  "code": "native_verification_failed",
+  "key": "error.native_verification_failed.codex_blocks",
+  "text": "El historial Codex contiene bloques no esperados.",
+  "details": []
+ },
+ {
+  "code": "native_verification_failed",
+  "key": "error.native_verification_failed.codex_context",
+  "text": "El historial visible Codex no coincide con su contexto.",
+  "details": []
+ },
+ {
+  "code": "native_verification_failed",
+  "key": "error.native_verification_failed.codex_incomplete",
+  "text": "Codex no devolvió el historial completo solicitado.",
+  "details": []
+ },
+ {
+  "code": "native_verification_failed",
+  "key": "error.native_verification_failed.codex_item",
+  "text": "Codex devolvió un elemento de historial inválido.",
+  "details": []
+ },
+ {
+  "code": "native_verification_failed",
+  "key": "error.native_verification_failed.codex_items",
+  "text": "El historial Codex contiene elementos no esperados.",
+  "details": []
+ },
+ {
+  "code": "native_verification_failed",
+  "key": "error.native_verification_failed.codex_projection",
+  "text": "El historial visible Codex no coincide con la proyección completa.",
+  "details": []
+ },
+ {
+  "code": "native_verification_failed",
+  "key": "error.native_verification_failed.codex_turn",
+  "text": "Codex devolvió un turno de historial inválido.",
+  "details": []
+ },
+ {
+  "code": "native_verification_failed",
+  "key": "error.native_verification_failed.projection",
+  "text": "El historial nativo leído no coincide con la proyección completa.",
+  "details": []
+ },
+ {
+  "code": "native_version_changed",
+  "key": "error.native_version_changed",
+  "text": "La versión instalada no coincide con la compatibilidad verificada.",
+  "details": []
+ },
+ {
+  "code": "operation_busy",
+  "key": "error.operation_busy",
+  "text": "Ya hay otra operación de Session Bridge en marcha.",
+  "details": []
+ },
+ {
+  "code": "operation_conflict",
+  "key": "error.operation_conflict",
+  "text": "La operación planificada ya pertenece a otro traspaso.",
+  "details": []
+ },
+ {
+  "code": "package_limit",
+  "key": "error.package_limit.attachment",
+  "text": "Un adjunto excede el límite del paquete.",
+  "details": []
+ },
+ {
+  "code": "package_limit",
+  "key": "error.package_limit.resources",
+  "text": "El paquete excede los límites de recursos.",
+  "details": []
+ },
+ {
+  "code": "package_limit",
+  "key": "error.package_limit.tree",
+  "text": "El árbol de conversaciones excede los límites o contiene ciclos.",
+  "details": []
+ },
+ {
+  "code": "package_version",
+  "key": "error.package_version.conversation",
+  "text": "Versión de conversación no compatible.",
+  "details": []
+ },
+ {
+  "code": "package_version",
+  "key": "error.package_version.package",
+  "text": "Versión de paquete no compatible.",
+  "details": []
+ },
+ {
+  "code": "package_version",
+  "key": "error.package_version.related",
+  "text": "Versión de conversación relacionada no compatible.",
+  "details": []
+ },
+ {
+  "code": "profile_mismatch",
+  "key": "error.profile_mismatch.receipt",
+  "text": "El recibo pertenece a otro perfil.",
+  "details": []
+ },
+ {
+  "code": "profile_mismatch",
+  "key": "error.profile_mismatch.session",
+  "text": "La sesión no pertenece al perfil indicado.",
+  "details": []
+ },
+ {
+  "code": "profile_mismatch",
+  "key": "error.profile_mismatch.wsl_write",
+  "text": "La escritura no corresponde al perfil WSL seleccionado.",
+  "details": []
+ },
+ {
+  "code": "profile_not_found",
+  "key": "error.profile_not_found",
+  "text": "No existe un perfil único con ese identificador.",
+  "details": [
+   "profile"
+  ]
+ },
+ {
+  "code": "recovery_ownership",
+  "key": "error.recovery_ownership",
+  "text": "El destino no acredita pertenecer a este traspaso; no se reutilizará ni modificará.",
+  "details": [
+   "transfer_id"
+  ]
+ },
+ {
+  "code": "recovery_required",
+  "key": "error.recovery_required.before_resume",
+  "text": "Verifica o recupera el traspaso antes de reanudarlo.",
+  "details": []
+ },
+ {
+  "code": "recovery_required",
+  "key": "error.recovery_required.no_identifier",
+  "text": "La operación no conserva un identificador de destino.",
+  "details": []
+ },
+ {
+  "code": "recovery_required",
+  "key": "error.recovery_required.no_receipt",
+  "text": "No hay un recibo verificado; no se eliminará el destino.",
+  "details": []
+ },
+ {
+  "code": "recovery_required",
+  "key": "error.recovery_required.unconfirmed",
+  "text": "No se pudo confirmar el destino de una operación anterior. No se repetirá automáticamente; consulta doctor y el identificador de traspaso.",
+  "details": [
+   "native_id",
+   "transfer_id"
+  ]
+ },
+ {
+  "code": "related_cycle",
+  "key": "error.related_cycle",
+  "text": "Las relaciones entre conversaciones contienen un ciclo.",
+  "details": []
+ },
+ {
+  "code": "related_limit",
+  "key": "error.related_limit",
+  "text": "El árbol de conversaciones supera el límite explícito; no se truncará.",
+  "details": []
+ },
+ {
+  "code": "related_mismatch",
+  "key": "error.related_mismatch",
+  "text": "Una conversación relacionada no acredita su relación con el origen.",
+  "details": []
+ },
+ {
+  "code": "request_too_large",
+  "key": "error.request_too_large.protocol",
+  "text": "La solicitud supera el límite del protocolo.",
+  "details": []
+ },
+ {
+  "code": "request_too_large",
+  "key": "error.request_too_large.wsl",
+  "text": "La solicitud WSL supera el límite explícito de 64 MiB.",
+  "details": [
+   "limit_bytes"
+  ]
+ },
+ {
+  "code": "session_not_found",
+  "key": "error.session_not_found",
+  "text": "No se encontró la sesión.",
+  "details": []
+ },
+ {
+  "code": "session_not_found",
+  "key": "error.session_not_found.resume",
+  "text": "La sesión de destino ya no existe; no se creará otra al reanudar.",
+  "details": []
+ },
+ {
+  "code": "source_active",
+  "key": "error.source_active",
+  "text": "La sesión de origen está activa; solicita una instantánea.",
+  "details": []
+ },
+ {
+  "code": "source_changed",
+  "key": "error.source_changed.attachment",
+  "text": "Un adjunto gestionado cambió durante su captura.",
+  "details": []
+ },
+ {
+  "code": "source_changed",
+  "key": "error.source_changed.session",
+  "text": "La sesión cambió durante la captura; solicita una instantánea.",
+  "details": []
+ },
+ {
+  "code": "source_corrupt",
+  "key": "error.source_corrupt.damaged",
+  "text": "El archivo comprimido de origen está dañado.",
+  "details": []
+ },
+ {
+  "code": "source_corrupt",
+  "key": "error.source_corrupt.incomplete",
+  "text": "El archivo comprimido de origen está incompleto.",
+  "details": []
+ },
+ {
+  "code": "source_not_found",
+  "key": "error.source_not_found.codex_history",
+  "text": "No se encuentra el historial de la sesión Codex.",
+  "details": []
+ },
+ {
+  "code": "source_not_found",
+  "key": "error.source_not_found.opencode_session",
+  "text": "La sesión OpenCode no existe.",
+  "details": []
+ },
+ {
+  "code": "source_path_invalid",
+  "key": "error.source_path_invalid.attachment",
+  "text": "Un adjunto gestionado sale de las rutas permitidas.",
+  "details": []
+ },
+ {
+  "code": "source_path_invalid",
+  "key": "error.source_path_invalid.profile",
+  "text": "La ruta no pertenece al perfil seleccionado.",
+  "details": []
+ },
+ {
+  "code": "source_schema_unsupported",
+  "key": "error.source_schema_unsupported.codex_threads",
+  "text": "No se reconoce el esquema de hilos Codex.",
+  "details": []
+ },
+ {
+  "code": "source_schema_unsupported",
+  "key": "error.source_schema_unsupported.opencode_sessions",
+  "text": "No se reconoce el esquema de sesiones OpenCode.",
+  "details": []
+ },
+ {
+  "code": "source_schema_unsupported",
+  "key": "error.source_schema_unsupported.sessions",
+  "text": "No se puede leer el esquema de sesiones de origen.",
+  "details": []
+ },
+ {
+  "code": "source_too_large",
+  "key": "error.source_too_large.attachments",
+  "text": "Los adjuntos superan el límite de captura segura.",
+  "details": [
+   "limit_bytes"
+  ]
+ },
+ {
+  "code": "source_too_large",
+  "key": "error.source_too_large.decompression",
+  "text": "El archivo supera el límite de descompresión segura.",
+  "details": [
+   "limit_bytes"
+  ]
+ },
+ {
+  "code": "source_too_large",
+  "key": "error.source_too_large.embedded_attachment",
+  "text": "Un adjunto embebido supera el límite de captura segura.",
+  "details": [
+   "limit_bytes"
+  ]
+ },
+ {
+  "code": "source_too_large",
+  "key": "error.source_too_large.file",
+  "text": "El archivo supera el límite de captura segura.",
+  "details": [
+   "limit_bytes"
+  ]
+ },
+ {
+  "code": "source_too_large",
+  "key": "error.source_too_large.managed_attachment",
+  "text": "Un adjunto gestionado supera el límite de captura segura.",
+  "details": [
+   "limit_bytes"
+  ]
+ },
+ {
+  "code": "source_too_large",
+  "key": "error.source_too_large.record",
+  "text": "Un registro supera el límite de captura segura.",
+  "details": [
+   "limit_bytes"
+  ]
+ },
+ {
+  "code": "source_unreadable",
+  "key": "error.source_unreadable",
+  "text": "No se puede leer la sesión de origen.",
+  "details": []
+ },
+ {
+  "code": "store_version",
+  "key": "error.store_version",
+  "text": "El diario pertenece a una versión más reciente.",
+  "details": []
+ },
+ {
+  "code": "sync_already_linked",
+  "key": "error.sync_already_linked",
+  "text": "La sesión ya pertenece a un vínculo con otro nombre.",
+  "details": []
+ },
+ {
+  "code": "sync_ambiguous",
+  "key": "error.sync_ambiguous.identifier",
+  "text": "El identificador coincide con varios vínculos.",
+  "details": []
+ },
+ {
+  "code": "sync_ambiguous",
+  "key": "error.sync_ambiguous.session",
+  "text": "La sesión figura en varios vínculos; utiliza sync open.",
+  "details": []
+ },
+ {
+  "code": "sync_backup_exists",
+  "key": "error.sync_backup_exists",
+  "text": "La ruta de copia ya existe.",
+  "details": []
+ },
+ {
+  "code": "sync_backup_failed",
+  "key": "error.sync_backup_failed",
+  "text": "No se pudo completar la copia.",
+  "details": []
+ },
+ {
+  "code": "sync_backup_invalid",
+  "key": "error.sync_backup_invalid.file",
+  "text": "La copia no es un archivo válido.",
+  "details": []
+ },
+ {
+  "code": "sync_backup_invalid",
+  "key": "error.sync_backup_invalid.store",
+  "text": "La copia no pasa la validación del almacén.",
+  "details": []
+ },
+ {
+  "code": "sync_backup_invalid",
+  "key": "error.sync_backup_invalid.unverifiable",
+  "text": "La copia no se puede validar.",
+  "details": []
+ },
+ {
+  "code": "sync_blob_invalid",
+  "key": "error.sync_blob_invalid",
+  "text": "El contenido almacenado no es válido.",
+  "details": []
+ },
+ {
+  "code": "sync_blob_invalid",
+  "key": "error.sync_blob_invalid.archive",
+  "text": "El archivo almacenado no es válido.",
+  "details": []
+ },
+ {
+  "code": "sync_blob_invalid",
+  "key": "error.sync_blob_invalid.capture",
+  "text": "La captura almacenada no es válida.",
+  "details": []
+ },
+ {
+  "code": "sync_blob_invalid",
+  "key": "error.sync_blob_invalid.capture_check",
+  "text": "La captura almacenada no supera la verificación.",
+  "details": []
+ },
+ {
+  "code": "sync_blob_invalid",
+  "key": "error.sync_blob_invalid.capture_limit",
+  "text": "La captura almacenada supera el límite permitido.",
+  "details": []
+ },
+ {
+  "code": "sync_blob_invalid",
+  "key": "error.sync_blob_invalid.capture_unreadable",
+  "text": "La captura almacenada no se puede leer.",
+  "details": []
+ },
+ {
+  "code": "sync_blob_invalid",
+  "key": "error.sync_blob_invalid.content_check",
+  "text": "El contenido almacenado no supera la verificación.",
+  "details": []
+ },
+ {
+  "code": "sync_blob_invalid",
+  "key": "error.sync_blob_invalid.content_missing",
+  "text": "El contenido almacenado no está disponible.",
+  "details": []
+ },
+ {
+  "code": "sync_blob_invalid",
+  "key": "error.sync_blob_invalid.context",
+  "text": "El contexto almacenado no es válido.",
+  "details": []
+ },
+ {
+  "code": "sync_blob_invalid",
+  "key": "error.sync_blob_invalid.context_check",
+  "text": "El contexto almacenado no supera la verificación.",
+  "details": []
+ },
+ {
+  "code": "sync_blob_invalid",
+  "key": "error.sync_blob_invalid.context_limit",
+  "text": "El contexto almacenado supera el límite permitido.",
+  "details": []
+ },
+ {
+  "code": "sync_blob_invalid",
+  "key": "error.sync_blob_invalid.context_unreadable",
+  "text": "El contexto almacenado no se puede leer.",
+  "details": []
+ },
+ {
+  "code": "sync_branch_required",
+  "key": "error.sync_branch_required.assistant",
+  "text": "Ese asistente tiene varias continuaciones; elige una versión de sync status.",
+  "details": []
+ },
+ {
+  "code": "sync_branch_required",
+  "key": "error.sync_branch_required.choose",
+  "text": "Elige una versión o un asistente con una sola continuación (sync status).",
+  "details": []
+ },
+ {
+  "code": "sync_busy",
+  "key": "error.sync_busy",
+  "text": "Ya hay una operación de sincronización en marcha.",
+  "details": []
+ },
+ {
+  "code": "sync_capture_invalid",
+  "key": "error.sync_capture_invalid.format",
+  "text": "La captura no tiene el formato esperado.",
+  "details": []
+ },
+ {
+  "code": "sync_capture_invalid",
+  "key": "error.sync_capture_invalid.store",
+  "text": "No se pudo almacenar la captura.",
+  "details": []
+ },
+ {
+  "code": "sync_capture_not_found",
+  "key": "error.sync_capture_not_found",
+  "text": "No existe esa captura.",
+  "details": []
+ },
+ {
+  "code": "sync_capture_too_large",
+  "key": "error.sync_capture_too_large",
+  "text": "La captura supera el límite permitido.",
+  "details": []
+ },
+ {
+  "code": "sync_capture_too_large",
+  "key": "error.sync_capture_too_large.context",
+  "text": "El contexto supera el límite permitido.",
+  "details": []
+ },
+ {
+  "code": "sync_capture_too_large",
+  "key": "error.sync_capture_too_large.depth",
+  "text": "La captura contiene demasiados niveles relacionados.",
+  "details": []
+ },
+ {
+  "code": "sync_capture_too_large",
+  "key": "error.sync_capture_too_large.item",
+  "text": "Un elemento de la captura supera el límite permitido.",
+  "details": []
+ },
+ {
+  "code": "sync_conflict",
+  "key": "error.sync_conflict",
+  "text": "Hay varias ramas: elige --branch o sync select.",
+  "details": []
+ },
+ {
+  "code": "sync_context_invalid",
+  "key": "error.sync_context_invalid",
+  "text": "No se pudo almacenar el contexto.",
+  "details": []
+ },
+ {
+  "code": "sync_context_not_found",
+  "key": "error.sync_context_not_found",
+  "text": "No existe ese contexto.",
+  "details": []
+ },
+ {
+  "code": "sync_endpoint_not_found",
+  "key": "error.sync_endpoint_not_found",
+  "text": "Elige el identificador completo mostrado por sync status.",
+  "details": []
+ },
+ {
+  "code": "sync_interval",
+  "key": "error.sync_interval",
+  "text": "El intervalo debe estar entre 0,1 y 3600 segundos.",
+  "details": []
+ },
+ {
+  "code": "sync_last_endpoint",
+  "key": "error.sync_last_endpoint",
+  "text": "Es el último origen; usa sync unlink para detener todo el vínculo.",
+  "details": []
+ },
+ {
+  "code": "sync_link_conflict",
+  "key": "error.sync_link_conflict.name_taken",
+  "text": "Ese nombre ya pertenece a otro vínculo.",
+  "details": []
+ },
+ {
+  "code": "sync_link_conflict",
+  "key": "error.sync_link_conflict.renamed",
+  "text": "El vínculo ya tiene otro nombre.",
+  "details": []
+ },
+ {
+  "code": "sync_link_invalid",
+  "key": "error.sync_link_invalid",
+  "text": "El vínculo no contiene identidad y nombre válidos.",
+  "details": []
+ },
+ {
+  "code": "sync_link_not_found",
+  "key": "error.sync_link_not_found",
+  "text": "No existe ese vínculo.",
+  "details": []
+ },
+ {
+  "code": "sync_name_invalid",
+  "key": "error.sync_name_invalid",
+  "text": "El nombre necesita entre 1 y 120 caracteres visibles.",
+  "details": []
+ },
+ {
+  "code": "sync_not_current",
+  "key": "error.sync_not_current",
+  "text": "Hay un origen pendiente o no verificable. Espera o elige explícitamente --branch para abrir una instantánea.",
+  "details": []
+ },
+ {
+  "code": "sync_paused",
+  "key": "error.sync_paused",
+  "text": "Reanuda el vínculo antes de abrir una revisión sincronizada.",
+  "details": []
+ },
+ {
+  "code": "sync_pending_turn",
+  "key": "error.sync_pending_turn.context",
+  "text": "El contexto vigente todavía no contiene un turno terminado.",
+  "details": []
+ },
+ {
+  "code": "sync_pending_turn",
+  "key": "error.sync_pending_turn.first_turn",
+  "text": "El seguimiento espera un primer turno terminado.",
+  "details": []
+ },
+ {
+  "code": "sync_pending_turn",
+  "key": "error.sync_pending_turn.waiting",
+  "text": "Aún no hay un turno terminado con evidencia nativa; el seguimiento esperará.",
+  "details": []
+ },
+ {
+  "code": "sync_profile_changed",
+  "key": "error.sync_profile_changed.profile",
+  "text": "El perfil cambió desde que se vinculó; revisa el vínculo antes de continuar.",
+  "details": []
+ },
+ {
+  "code": "sync_profile_changed",
+  "key": "error.sync_profile_changed.target",
+  "text": "El destino del traspaso ya no coincide con el perfil.",
+  "details": []
+ },
+ {
+  "code": "sync_recovery_required",
+  "key": "error.sync_recovery_required.backup",
+  "text": "Recupera las publicaciones pendientes antes de copiar el archivo de sincronización.",
+  "details": []
+ },
+ {
+  "code": "sync_recovery_required",
+  "key": "error.sync_recovery_required.open",
+  "text": "La publicación necesita recuperación antes de abrirse.",
+  "details": []
+ },
+ {
+  "code": "sync_restore_failed",
+  "key": "error.sync_restore_failed",
+  "text": "No se pudo restaurar el almacén.",
+  "details": []
+ },
+ {
+  "code": "sync_restore_not_empty",
+  "key": "error.sync_restore_not_empty",
+  "text": "La restauración requiere una carpeta vacía.",
+  "details": []
+ },
+ {
+  "code": "sync_restore_unsafe",
+  "key": "error.sync_restore_unsafe.alias",
+  "text": "La carpeta de restauración no puede ser un alias.",
+  "details": []
+ },
+ {
+  "code": "sync_restore_unsafe",
+  "key": "error.sync_restore_unsafe.unverifiable",
+  "text": "No se pudo validar la carpeta de restauración.",
+  "details": []
+ },
+ {
+  "code": "sync_revision_conflict",
+  "key": "error.sync_revision_conflict",
+  "text": "La revisión existente es inmutable.",
+  "details": []
+ },
+ {
+  "code": "sync_revision_invalid",
+  "key": "error.sync_revision_invalid",
+  "text": "La revisión no contiene los campos obligatorios.",
+  "details": []
+ },
+ {
+  "code": "sync_revision_not_found",
+  "key": "error.sync_revision_not_found",
+  "text": "No existe esa revisión.",
+  "details": []
+ },
+ {
+  "code": "sync_source_changed",
+  "key": "error.sync_source_changed",
+  "text": "El lector no devolvió el identificador vinculado.",
+  "details": []
+ },
+ {
+  "code": "sync_source_required",
+  "key": "error.sync_source_required",
+  "text": "Indica el origen completo como perfil:identificador.",
+  "details": []
+ },
+ {
+  "code": "sync_store_invalid",
+  "key": "error.sync_store_invalid.link",
+  "text": "No se pudo leer el vínculo.",
+  "details": []
+ },
+ {
+  "code": "sync_store_invalid",
+  "key": "error.sync_store_invalid.links",
+  "text": "No se pudieron leer los vínculos.",
+  "details": []
+ },
+ {
+  "code": "sync_store_invalid",
+  "key": "error.sync_store_invalid.open",
+  "text": "No se pudo abrir el almacén de sincronización.",
+  "details": []
+ },
+ {
+  "code": "sync_store_invalid",
+  "key": "error.sync_store_invalid.revision",
+  "text": "No se pudo leer la revisión.",
+  "details": []
+ },
+ {
+  "code": "sync_store_invalid",
+  "key": "error.sync_store_invalid.revisions",
+  "text": "No se pudieron leer las revisiones.",
+  "details": []
+ },
+ {
+  "code": "sync_store_unsafe",
+  "key": "error.sync_store_unsafe",
+  "text": "El almacén de sincronización no es seguro.",
+  "details": []
+ },
+ {
+  "code": "sync_store_unsafe",
+  "key": "error.sync_store_unsafe.lock",
+  "text": "El bloqueo de sincronización no es seguro.",
+  "details": []
+ },
+ {
+  "code": "sync_store_unsafe",
+  "key": "error.sync_store_unsafe.lock_unusable",
+  "text": "No se pudo usar el bloqueo de sincronización.",
+  "details": []
+ },
+ {
+  "code": "sync_store_version",
+  "key": "error.sync_store_version",
+  "text": "El almacén pertenece a una versión más reciente.",
+  "details": []
+ },
+ {
+  "code": "sync_target_advanced",
+  "key": "error.sync_target_advanced",
+  "text": "El destino continuó durante la recuperación. Su nueva revisión se conserva; consulta sync status y vuelve a abrirla.",
+  "details": []
+ },
+ {
+  "code": "sync_target_unverified",
+  "key": "error.sync_target_unverified.restored",
+  "text": "El destino restaurado no acredita su procedencia.",
+  "details": []
+ },
+ {
+  "code": "sync_target_unverified",
+  "key": "error.sync_target_unverified.transfer",
+  "text": "El destino no acredita pertenecer al traspaso verificado.",
+  "details": []
+ },
+ {
+  "code": "sync_transfer_context",
+  "key": "error.sync_transfer_context",
+  "text": "El traspaso no corresponde a una revisión conocida del vínculo.",
+  "details": []
+ },
+ {
+  "code": "sync_transfer_mismatch",
+  "key": "error.sync_transfer_mismatch",
+  "text": "El traspaso pertenece a otro origen.",
+  "details": []
+ },
+ {
+  "code": "sync_transfer_unverified",
+  "key": "error.sync_transfer_unverified",
+  "text": "Solo se vinculan conversiones nativas verificadas.",
+  "details": []
+ },
+ {
+  "code": "sync_unlinked",
+  "key": "error.sync_unlinked",
+  "text": "El vínculo está desvinculado; sus archivos se conservan.",
+  "details": []
+ },
+ {
+  "code": "sync_unstable_source",
+  "key": "error.sync_unstable_source",
+  "text": "La captura está cambiando, incompleta o tiene una rama ambigua; se conserva la última revisión.",
+  "details": []
+ },
+ {
+  "code": "sync_variant_unsupported",
+  "key": "error.sync_variant_unsupported",
+  "text": "La sincronización sigue la variante actual del origen; esta conversión usó otra.",
+  "details": []
+ },
+ {
+  "code": "sync_windows_only",
+  "key": "error.sync_windows_only",
+  "text": "La sincronización está habilitada solo para perfiles Windows.",
+  "details": []
+ },
+ {
+  "code": "sync_worker_busy",
+  "key": "error.sync_worker_busy",
+  "text": "Hay otra operación del trabajador en curso.",
+  "details": []
+ },
+ {
+  "code": "sync_worker_identity",
+  "key": "error.sync_worker_identity",
+  "text": "No se pudo verificar la identidad del trabajador.",
+  "details": []
+ },
+ {
+  "code": "sync_worker_identity",
+  "key": "error.sync_worker_identity.invalid",
+  "text": "La identidad del trabajador no es válida.",
+  "details": []
+ },
+ {
+  "code": "sync_worker_io",
+  "key": "error.sync_worker_io.folder",
+  "text": "No se puede acceder al directorio del trabajador.",
+  "details": []
+ },
+ {
+  "code": "sync_worker_io",
+  "key": "error.sync_worker_io.lock_path",
+  "text": "La ruta del bloqueo no pertenece al trabajador.",
+  "details": []
+ },
+ {
+  "code": "sync_worker_io",
+  "key": "error.sync_worker_io.query",
+  "text": "No se pudo consultar el trabajador.",
+  "details": []
+ },
+ {
+  "code": "sync_worker_io",
+  "key": "error.sync_worker_io.start",
+  "text": "No se pudo iniciar el trabajador.",
+  "details": []
+ },
+ {
+  "code": "sync_worker_io",
+  "key": "error.sync_worker_io.state",
+  "text": "No se pudo actualizar el estado del trabajador.",
+  "details": []
+ },
+ {
+  "code": "sync_worker_io",
+  "key": "error.sync_worker_io.stop",
+  "text": "No se pudo solicitar la parada del trabajador.",
+  "details": []
+ },
+ {
+  "code": "sync_worker_running",
+  "key": "error.sync_worker_running",
+  "text": "Ya hay un trabajador en ejecución.",
+  "details": []
+ },
+ {
+  "code": "sync_worker_start_failed",
+  "key": "error.sync_worker_start_failed",
+  "text": "No se pudo confirmar el inicio del trabajador.",
+  "details": []
+ },
+ {
+  "code": "sync_worker_stop_timeout",
+  "key": "error.sync_worker_stop_timeout",
+  "text": "El trabajador aún no ha confirmado la parada.",
+  "details": []
+ },
+ {
+  "code": "sync_worker_unresponsive",
+  "key": "error.sync_worker_unresponsive",
+  "text": "El trabajador no responde; consulta worker-status.",
+  "details": []
+ },
+ {
+  "code": "transfer_not_found",
+  "key": "error.transfer_not_found",
+  "text": "No existe ese traspaso.",
+  "details": [
+   "transfer_id"
+  ]
+ },
+ {
+  "code": "transfer_undone",
+  "key": "error.transfer_undone",
+  "text": "Ese traspaso fue deshecho.",
+  "details": []
+ },
+ {
+  "code": "transfer_undone",
+  "key": "error.transfer_undone.new_copy",
+  "text": "El traspaso fue deshecho; usa --new-copy para crear otro.",
+  "details": []
+ },
+ {
+  "code": "undo_changed",
+  "key": "error.undo_changed.context",
+  "text": "El contexto se ha modificado; no se eliminará.",
+  "details": []
+ },
+ {
+  "code": "undo_changed",
+  "key": "error.undo_changed.target",
+  "text": "El destino cambió; no se eliminará.",
+  "details": []
+ },
+ {
+  "code": "undo_changed",
+  "key": "error.undo_changed.unverifiable",
+  "text": "No se puede comprobar el contexto; no se eliminará.",
+  "details": []
+ },
+ {
+  "code": "undo_manual_required",
+  "key": "error.undo_manual_required",
+  "text": "No puede verificarse inactividad y propiedad de todos los descendientes; elimina manualmente la conversación desde el cliente nativo.",
+  "details": [
+   "native_id"
+  ]
+ },
+ {
+  "code": "unknown_context_point",
+  "key": "error.unknown_context_point.identifier",
+  "text": "No hay un punto de contexto único con ese identificador.",
+  "details": []
+ },
+ {
+  "code": "unknown_context_point",
+  "key": "error.unknown_context_point.other_version",
+  "text": "Ese punto pertenece a otra variante de la conversación.",
+  "details": []
+ },
+ {
+  "code": "unsafe_native_path",
+  "key": "error.unsafe_native_path.base",
+  "text": "La base nativa sale del perfil seleccionado.",
+  "details": []
+ },
+ {
+  "code": "unsafe_native_path",
+  "key": "error.unsafe_native_path.path",
+  "text": "La ruta nativa sale del perfil seleccionado.",
+  "details": []
+ },
+ {
+  "code": "unsafe_native_path",
+  "key": "error.unsafe_native_path.subtree",
+  "text": "El subárbol nativo sale del perfil seleccionado.",
+  "details": []
+ },
+ {
+  "code": "unsafe_native_path",
+  "key": "error.unsafe_native_path.symlink",
+  "text": "El subárbol nativo contiene un enlace simbólico.",
+  "details": []
+ },
+ {
+  "code": "unsafe_store",
+  "key": "error.unsafe_store.journal",
+  "text": "El diario no puede ser un enlace simbólico.",
+  "details": []
+ },
+ {
+  "code": "unsafe_store",
+  "key": "error.unsafe_store.lock",
+  "text": "El bloqueo no puede ser un enlace simbólico.",
+  "details": []
+ },
+ {
+  "code": "unsafe_undo",
+  "key": "error.unsafe_undo",
+  "text": "La carpeta del traspaso no es segura para deshacer.",
+  "details": []
+ },
+ {
+  "code": "unsupported_helper_operation",
+  "key": "error.unsupported_helper_operation",
+  "text": "La operación no está permitida para el helper.",
+  "details": []
+ },
+ {
+  "code": "unsupported_protocol",
+  "key": "error.unsupported_protocol",
+  "text": "La versión del protocolo no está soportada.",
+  "details": []
+ },
+ {
+  "code": "variant_ambiguous",
+  "key": "error.variant_ambiguous",
+  "text": "Hay varias variantes con ese prefijo.",
+  "details": [
+   "candidates"
+  ]
+ },
+ {
+  "code": "variant_not_found",
+  "key": "error.variant_not_found",
+  "text": "La conversación no tiene esa variante.",
+  "details": [
+   "variant"
+  ]
+ },
+ {
+  "code": "wheel_path_unsupported",
+  "key": "error.wheel_path_unsupported",
+  "text": "El wheel debe estar en una unidad Windows montada en WSL.",
+  "details": []
+ },
+ {
+  "code": "wsl_distro_missing",
+  "key": "error.wsl_distro_missing.configured",
+  "text": "La distribución configurada no está registrada en WSL.",
+  "details": [
+   "distribution"
+  ]
+ },
+ {
+  "code": "wsl_distro_missing",
+  "key": "error.wsl_distro_missing.requested",
+  "text": "La distribución indicada no está registrada en WSL.",
+  "details": [
+   "distribution"
+  ]
+ },
+ {
+  "code": "wsl_distro_stopped",
+  "key": "error.wsl_distro_stopped.before_handoff",
+  "text": "Inicia explícitamente la distribución antes de preparar su traspaso.",
+  "details": []
+ },
+ {
+  "code": "wsl_distro_stopped",
+  "key": "error.wsl_distro_stopped.start_it",
+  "text": "La distribución está detenida. Iníciala explícitamente con `wsl start`.",
+  "details": [
+   "distribution"
+  ]
+ },
+ {
+  "code": "wsl_helper_error",
+  "key": "error.wsl_helper_error",
+  "text": "La operación WSL falló.",
+  "details": []
+ },
+ {
+  "code": "wsl_helper_failed",
+  "key": "error.wsl_helper_failed.rejected",
+  "text": "El helper de WSL rechazó la operación.",
+  "details": [
+   "exit_code"
+  ]
+ },
+ {
+  "code": "wsl_helper_failed",
+  "key": "error.wsl_helper_failed.unreachable",
+  "text": "No se pudo comunicar con el helper de WSL.",
+  "details": []
+ },
+ {
+  "code": "wsl_install_failed",
+  "key": "error.wsl_install_failed",
+  "text": "No se pudo preparar el entorno de Session Bridge en WSL.",
+  "details": []
+ },
+ {
+  "code": "wsl_install_protocol_error",
+  "key": "error.wsl_install_protocol_error.metadata",
+  "text": "La instalación no devolvió metadatos válidos.",
+  "details": []
+ },
+ {
+  "code": "wsl_install_protocol_error",
+  "key": "error.wsl_install_protocol_error.profiles",
+  "text": "La instalación no devolvió perfiles válidos.",
+  "details": []
+ },
+ {
+  "code": "wsl_path_mapping",
+  "key": "error.wsl_path_mapping",
+  "text": "No se pudo convertir la ruta del contexto para WSL.",
+  "details": []
+ },
+ {
+  "code": "wsl_protocol_error",
+  "key": "error.wsl_protocol_error",
+  "text": "El helper de WSL devolvió una respuesta no válida.",
+  "details": []
+ },
+ {
+  "code": "wsl_start_failed",
+  "key": "error.wsl_start_failed",
+  "text": "No se pudo iniciar la distribución elegida.",
+  "details": []
+ },
+ {
+  "code": "wsl_status_failed",
+  "key": "error.wsl_status_failed",
+  "text": "No se pudo consultar el estado de WSL.",
+  "details": []
+ },
+ {
+  "code": "wsl_status_failed",
+  "key": "error.wsl_status_failed.distributions",
+  "text": "WSL no pudo devolver el estado de las distribuciones.",
+  "details": [
+   "exit_code"
+  ]
+ },
+ {
+  "code": "wsl_unavailable",
+  "key": "error.wsl_unavailable",
+  "text": "No se encontró WSL en este equipo.",
+  "details": []
+ }
+]

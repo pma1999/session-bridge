@@ -8,7 +8,7 @@ from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 from pathlib import Path
 
-from . import history
+from . import history, i18n
 from .archive import write_package
 from .catalog import same_directory
 from .errors import BridgeError
@@ -91,14 +91,12 @@ class SyncService:
     def _profile(self, identifier):
         profile = self.bridge._profile(identifier)
         if profile.environment != "windows":
-            raise BridgeError(
-                "sync_windows_only", "La sincronización está habilitada solo para perfiles Windows."
-            )
+            raise BridgeError("sync_windows_only")
         return profile
 
     def _source(self, key):
         if ":" not in key:
-            raise BridgeError("sync_source_required", "Indica el origen completo como perfil:identificador.")
+            raise BridgeError("sync_source_required")
         self._profile(key.split(":", 1)[0])  # Refuse WSL before any discovery/read.
         conversation = self.bridge.show(key, snapshot=True)
         self._profile(conversation.source.profile_id)
@@ -109,11 +107,11 @@ class SyncService:
         if current.model_dump(mode="json") != endpoint["profile"]:
             raise BridgeError(
                 "sync_profile_changed",
-                "El perfil cambió desde que se vinculó; revisa el vínculo antes de continuar.",
+                "error.sync_profile_changed.profile",
             )
         conversation = self.bridge.show(endpoint["key"], snapshot=True)
         if conversation.source.key != endpoint["key"]:
-            raise BridgeError("sync_source_changed", "El lector no devolvió el identificador vinculado.")
+            raise BridgeError("sync_source_changed")
         return self.bridge._capture_tree(conversation, snapshot=True)
 
     def _endpoint(self, conversation, profile, revision=None):
@@ -136,12 +134,11 @@ class SyncService:
 
     def link(self, key: str, *, name=None, transfer_id=None):
         if name is not None and (not name.strip() or len(name) > 120 or any(ord(c) < 32 for c in name)):
-            raise BridgeError("sync_name_invalid", "El nombre necesita entre 1 y 120 caracteres visibles.")
+            raise BridgeError("sync_name_invalid")
         if transfer_id and self.bridge.store.get(transfer_id).context_policy.get("variant"):
             # Before anything is saved: the link would follow a version the source no longer continues.
             raise BridgeError(
                 "sync_variant_unsupported",
-                "La sincronización sigue la variante actual del origen; esta conversión usó otra.",
             )
         with self._operation():
             conversation = self._source(key)
@@ -154,9 +151,7 @@ class SyncService:
             if existing:
                 link = existing[0]
                 if name and name.casefold() != link["name"].casefold():
-                    raise BridgeError(
-                        "sync_already_linked", "La sesión ya pertenece a un vínculo con otro nombre."
-                    )
+                    raise BridgeError("sync_already_linked")
             else:
                 link_id = "ln_" + uuid.uuid4().hex
                 link = {
@@ -178,7 +173,7 @@ class SyncService:
                     transfer = self.bridge.store.get(transfer_id)
                     archived, projection = self.bridge._archived_context(transfer)
                     if transfer.source_key != conversation.source.key:
-                        raise BridgeError("sync_transfer_mismatch", "El traspaso pertenece a otro origen.")
+                        raise BridgeError("sync_transfer_mismatch")
                     # Explicit conversion is a user-selected historical snapshot. Preserve
                     # that exact baseline, even if the live source is already continuing.
                     self._record(
@@ -199,12 +194,10 @@ class SyncService:
     def _attach_transfer(self, link, transfer_id):
         transfer = self.bridge.store.get(transfer_id)
         if transfer.state != "completed" or transfer.mode != "native" or not transfer.receipt:
-            raise BridgeError(
-                "sync_transfer_unverified", "Solo se vinculan conversiones nativas verificadas."
-            )
+            raise BridgeError("sync_transfer_unverified")
         profile = self._profile(transfer.target_profile)
         if transfer.target and transfer.target.model_dump(mode="json") != profile.model_dump(mode="json"):
-            raise BridgeError("sync_profile_changed", "El destino del traspaso ya no coincide con el perfil.")
+            raise BridgeError("sync_profile_changed", "error.sync_profile_changed.target")
         archived, projection = self.bridge._archived_context(transfer)
         expected = [(m.role, m.text) for m in projection.messages]
         revisions = [
@@ -214,9 +207,7 @@ class SyncService:
             and _signature(self.store.get_context(revision["context"])) == expected
         ]
         if not revisions:
-            raise BridgeError(
-                "sync_transfer_context", "El traspaso no corresponde a una revisión conocida del vínculo."
-            )
+            raise BridgeError("sync_transfer_context")
         key = profile.id + ":" + transfer.native_id
         if any(endpoint["key"] == key for endpoint in link["endpoints"]):
             return
@@ -226,9 +217,7 @@ class SyncService:
             or receipt.evidence.get("operation_ids") != [transfer.id]
             or not receipt.evidence.get("owned")
         ):
-            raise BridgeError(
-                "sync_target_unverified", "El destino no acredita pertenecer al traspaso verificado."
-            )
+            raise BridgeError("sync_target_unverified", "error.sync_target_unverified.transfer")
         ref = self.bridge.show(key, snapshot=True)
         endpoint = self._endpoint(ref, profile, revisions[-1]["id"])
         endpoint.update(
@@ -386,7 +375,7 @@ class SyncService:
                     {
                         "link_id": link["id"],
                         "code": exc.code,
-                        "message": "No se pudo actualizar uno de los orígenes; se conserva la revisión anterior.",
+                        "message": i18n.t("sync.endpoint_failed"),
                     }
                 )
             except (OSError, ValueError):
@@ -395,7 +384,7 @@ class SyncService:
                     {
                         "link_id": link["id"],
                         "code": "sync_source_unreadable",
-                        "message": "No se pudo capturar el origen vinculado.",
+                        "message": i18n.t("error.sync_source_unreadable"),
                     }
                 )
             endpoint["observed_signature"] = signature
@@ -496,23 +485,20 @@ class SyncService:
                 if len(matches) > 1:
                     raise BridgeError(
                         "sync_branch_required",
-                        "Ese asistente tiene varias continuaciones; elige una versión de sync status.",
+                        "error.sync_branch_required.assistant",
                     )
             if len(matches) != 1:
                 raise BridgeError(
                     "sync_branch_required",
-                    "Elige una versión o un asistente con una sola continuación (sync status).",
+                    "error.sync_branch_required.choose",
                 )
             return matches[0]
         if link["selected_head"] in link["heads"]:
             return link["selected_head"]
         if len(link["heads"]) != 1:
-            raise BridgeError(
-                "sync_conflict" if link["heads"] else "sync_pending_turn",
-                "Hay varias ramas: elige --branch o sync select."
-                if link["heads"]
-                else "El seguimiento espera un primer turno terminado.",
-            )
+            if link["heads"]:
+                raise BridgeError("sync_conflict")
+            raise BridgeError("sync_pending_turn", "error.sync_pending_turn.first_turn")
         return link["heads"][0]
 
     def _conversation(self, revision, link):
@@ -571,7 +557,7 @@ class SyncService:
         """What ``open`` would do, without capturing, publishing or saving anything."""
         value = self.store.get_link(link)
         if value["paused"] or value["unlinked"]:
-            raise BridgeError("sync_paused", "Reanuda el vínculo antes de abrir una revisión sincronizada.")
+            raise BridgeError("sync_paused")
         revision_id = self._choose(value, branch)
         _, profile, directory = self._target(value, revision_id, target, cwd, model)
         reusable = self._reusable(value, profile, revision_id, directory, model)
@@ -603,9 +589,7 @@ class SyncService:
         with self._operation():
             value = self.store.get_link(link)
             if value["paused"] or value["unlinked"]:
-                raise BridgeError(
-                    "sync_paused", "Reanuda el vínculo antes de abrir una revisión sincronizada."
-                )
+                raise BridgeError("sync_paused")
             _, errors = self._poll_locked(value, force=True)
             revision_id = self._choose(value, branch)
             if branch is None and (
@@ -618,7 +602,6 @@ class SyncService:
             ):
                 raise BridgeError(
                     "sync_not_current",
-                    "Hay un origen pendiente o no verificable. Espera o elige explícitamente --branch para abrir una instantánea.",
                 )
             conversation, profile, directory = self._target(value, revision_id, target, cwd, model)
             reusable = None if new_copy else self._reusable(value, profile, revision_id, directory, model)
@@ -645,9 +628,7 @@ class SyncService:
                         or receipt.evidence.get("operation_ids") != [transfer_id]
                         or not receipt.evidence.get("owned")
                     ):
-                        raise BridgeError(
-                            "sync_target_unverified", "El destino restaurado no acredita su procedencia."
-                        )
+                        raise BridgeError("sync_target_unverified", "error.sync_target_unverified.restored")
                     resume_key = candidates[-1]["key"]
             else:
                 intent_key = digest([revision_id, profile.model_dump(mode="json"), directory, model])
@@ -683,9 +664,7 @@ class SyncService:
                 elif transfer.state != "completed":
                     transfer = self.bridge.recover(transfer.id)
                 if transfer.state != "completed" or transfer.mode != "native":
-                    raise BridgeError(
-                        "sync_recovery_required", "La publicación necesita recuperación antes de abrirse."
-                    )
+                    raise BridgeError("sync_recovery_required", "error.sync_recovery_required.open")
                 native_key = profile.id + ":" + transfer.native_id
                 native_capture = self.bridge.show(native_key, snapshot=True)
                 endpoint = self._endpoint(native_capture, profile, revision_id)
@@ -700,7 +679,6 @@ class SyncService:
                 if advanced or endpoint["pending"]:
                     raise BridgeError(
                         "sync_target_advanced",
-                        "El destino continuó durante la recuperación. Su nueva revisión se conserva; consulta sync status y vuelve a abrirla.",
                     )
                 transfer_id = transfer.id
             if reusable:
@@ -738,7 +716,7 @@ class SyncService:
     def unpause(self, link):
         value = self.store.get_link(link)
         if value["unlinked"]:
-            raise BridgeError("sync_unlinked", "El vínculo está desvinculado; sus archivos se conservan.")
+            raise BridgeError("sync_unlinked")
         return self._toggle(link, paused=False)
 
     def unlink(self, link):
@@ -750,17 +728,13 @@ class SyncService:
             value = self.store.get_link(link)
             endpoints = [endpoint for endpoint in value["endpoints"] if endpoint["key"] == key]
             if len(endpoints) != 1:
-                raise BridgeError(
-                    "sync_endpoint_not_found", "Elige el identificador completo mostrado por sync status."
-                )
+                raise BridgeError("sync_endpoint_not_found")
             endpoint = endpoints[0]
             if (
                 endpoint.get("enabled", True)
                 and sum(item.get("enabled", True) for item in value["endpoints"]) <= 1
             ):
-                raise BridgeError(
-                    "sync_last_endpoint", "Es el último origen; usa sync unlink para detener todo el vínculo."
-                )
+                raise BridgeError("sync_last_endpoint")
             endpoint.update(enabled=False, state="detached", pending=False, error=None)
             value["last_error"] = next(
                 (
@@ -783,7 +757,7 @@ class SyncService:
             and (endpoint["key"] == key or endpoint.get("transfer_id") == key)
         ]
         if len(matches) > 1:
-            raise BridgeError("sync_ambiguous", "La sesión figura en varios vínculos; utiliza sync open.")
+            raise BridgeError("sync_ambiguous", "error.sync_ambiguous.session")
         return (matches[0][0]["id"], matches[0][1]["profile_id"]) if matches else None
 
     def select(self, link, branch):
@@ -809,6 +783,6 @@ class SyncService:
             ):
                 raise BridgeError(
                     "sync_recovery_required",
-                    "Recupera las publicaciones pendientes antes de copiar el archivo de sincronización.",
+                    "error.sync_recovery_required.backup",
                 )
             return self.store.backup(Path(output))

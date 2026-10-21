@@ -2,6 +2,7 @@ import re
 
 import pytest
 
+from session_bridge import i18n
 from session_bridge.models import Profile
 from session_bridge.writers import registry
 
@@ -20,4 +21,6 @@ def test_unknown_native_version_is_explicitly_unsupported(tmp_path):
     profile = Profile(id="unknown", tool="claude", home=str(tmp_path), version="999.0.0")
     result = registry.capability(profile)
     assert result.native is False
-    assert "versión" in result.reason.lower()
+    # The reason is a catalog key, so it reads in the language the result is shown in.
+    assert result.reason == "capability.unverified_version"
+    assert "versión" in i18n.text(result.reason).lower()

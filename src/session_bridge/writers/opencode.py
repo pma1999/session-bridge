@@ -22,7 +22,7 @@ def transfer_data(request):
     now = int(time.time() * 1000)
     provider, _, model = (request.model or "imported/imported").partition("/")
     if not provider or not model:
-        raise BridgeError("invalid_model", "OpenCode requiere el modelo en formato proveedor/modelo.")
+        raise BridgeError("invalid_model")
     ref, messages = {"providerID": provider, "id": model}, []
     for index, message in enumerate(request.messages):
         item = {
@@ -63,15 +63,15 @@ def export(profile, native_id, cwd):
     validate_id("opencode", native_id)
     result = run(profile, ["session", "export", native_id, "--standalone"], cwd=cwd)
     if result.returncode:
-        raise BridgeError("native_read_failed", "OpenCode no pudo leer la conversación nativa.")
+        raise BridgeError("native_read_failed", "error.native_read_failed.conversation")
     try:
         value = json.loads(result.stdout)
     except ValueError:
-        raise BridgeError("native_read_failed", "OpenCode no devolvió un registro verificable.") from None
+        raise BridgeError("native_read_failed", "error.native_read_failed.record") from None
     if not isinstance(value, dict) or not isinstance(value.get("info"), dict):
-        raise BridgeError("native_read_failed", "OpenCode no devolvió un registro verificable.")
+        raise BridgeError("native_read_failed", "error.native_read_failed.record")
     if value["info"].get("id") != native_id or not isinstance(value.get("messages"), list):
-        raise BridgeError("native_read_failed", "OpenCode devolvió un identificador o historial inesperado.")
+        raise BridgeError("native_read_failed", "error.native_read_failed.unexpected")
     return value
 
 
@@ -87,17 +87,13 @@ def readback(profile, native_id):
     if not path.exists():
         return None
     if path.is_symlink() or not path.resolve().is_relative_to(Path(profile.home).resolve()):
-        raise BridgeError("unsafe_native_path", "La base nativa sale del perfil seleccionado.")
+        raise BridgeError("unsafe_native_path", "error.unsafe_native_path.base")
     raw, selected = {}, []
     with database(path) as con:
         if not {"id", "parent_id", "directory"} <= columns(con, "session_v2"):
-            raise BridgeError(
-                "native_schema_unsupported", "No se reconoce el esquema nativo OpenCode verificado."
-            )
+            raise BridgeError("native_schema_unsupported", "error.native_schema_unsupported.schema")
         if not {"session_id", "seq", "type", "data"} <= columns(con, "session_message"):
-            raise BridgeError(
-                "native_schema_unsupported", "No se reconoce el historial nativo OpenCode verificado."
-            )
+            raise BridgeError("native_schema_unsupported", "error.native_schema_unsupported.history")
         rows = [
             dict(row)
             for row in con.execute(
@@ -137,7 +133,7 @@ def readback(profile, native_id):
                 try:
                     data = json.loads(row["data"])
                 except (ValueError, TypeError):
-                    raise BridgeError("native_corrupt", "Hay mensajes nativos inválidos.") from None
+                    raise BridgeError("native_corrupt", "error.native_corrupt.messages") from None
                 selected.append({**data, "id": row["id"], "type": row["type"]})
     value = {"info": {"id": native_id, "location": {"directory": session["directory"]}}, "messages": selected}
     receipt = receipt_from_export(profile, value)
@@ -178,14 +174,12 @@ def write(request):
             cwd=request.cwd,
         )
     if result.returncode:
-        raise BridgeError(
-            "native_import_failed", "OpenCode rechazó la importación; reconcilia antes de reintentar."
-        )
+        raise BridgeError("native_import_failed")
     receipt = inspect(request.profile, request.native_id, cwd=request.cwd)
     if receipt is None:
-        raise BridgeError("native_read_failed", "OpenCode no devolvió un registro persistido verificable.")
+        raise BridgeError("native_read_failed", "error.native_read_failed.persisted_record")
     if receipt.evidence.get("operation_ids") != [request.operation_id]:
-        raise BridgeError("native_conflict", "No se pudo atribuir el destino a esta operación; reconcilia.")
+        raise BridgeError("native_conflict", "error.native_conflict.unattributed")
     return receipt
 
 

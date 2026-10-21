@@ -61,7 +61,7 @@ def test_arrow_keys_move_through_matches_and_escape_leaves_without_choosing():
 def test_enter_without_matches_keeps_the_query_and_explains_why():
     with create_app_session(output=DummyOutput()):
         picker = interactive._Picker(
-            CHOICES, heading=[], placeholder="", empty="Nada coincide con «{query}».", noun=("a", "b")
+            CHOICES, heading=[], placeholder="", empty="picker.empty", noun="picker.count.option"
         )
         picker.buffer.text = "zzz  nada"
         text = "".join(fragment for _, fragment in picker._lines())
@@ -72,7 +72,7 @@ def test_enter_without_matches_keeps_the_query_and_explains_why():
 
 def test_closer_match_comes_first_and_long_labels_are_truncated():
     with create_app_session(output=DummyOutput()):
-        picker = interactive._Picker(CHOICES, heading=[], placeholder="", empty="", noun=("a", "b"))
+        picker = interactive._Picker(CHOICES, heading=[], placeholder="picker.placeholder", empty="picker.empty", noun="picker.count.option")
         picker.buffer.text = "ruta"
     assert [item.value for item in picker.matches] == ["ruta", "otra"]
     assert interactive._fit("una conversación muy larga", 10) == "una conve…"
@@ -203,13 +203,13 @@ class ConvertBridge:
     def preview(self, key, target, **options):
         self.previews.append(options)
         if self.missing_cwd and options["cwd"] != "C:/destination":
-            raise BridgeError("cwd_missing", "Carpeta ausente.")
+            raise BridgeError("cwd_missing")
         native = self.native or options["mode"] == "handoff"
         return {
             "cwd": options["cwd"] or self.ref.cwd,
             "message_count": 3,
             "native_available": native,
-            "capability": {"reason": "Versión no verificada"},
+            "capability": {"reason": "capability.unverified_version"},
             "fidelity": {},
             "variant": options.get("variant"),
             "variants": self.variants,
@@ -771,3 +771,161 @@ def test_menus_fit_long_labels_and_wrap_the_question_to_the_terminal(monkeypatch
     assert "continúas?" in seen["message"].split("\n")[-1]
     assert seen["labels"][0].endswith("…") and len(seen["labels"][0]) == 39 - interactive.MENU_INDENT
     assert seen["labels"][1] == "short"
+
+
+# The same flows in English, and in a pseudo-language that shows any text left out of the catalogs --
+
+
+def test_conversion_reads_in_english(monkeypatch, capsys, lang):
+    lang("en")
+    ref = session("a", "My task", "C:/project")
+    bridge = ConvertBridge(ref, variants=EDITED)
+    monkeypatch.setattr("session_bridge.cli._resume", lambda bridge, key: None)
+    asked = _answers(monkeypatch, "codex-win", "convert", "open")
+    interactive._convert(bridge, ref, PROFILES)
+    assert asked[0] == ("Where do you want to continue it?", ["Codex", "OpenCode", "Back to the search"])
+    assert "Choose another version (2)" in asked[1][1]
+    assert "Convert and keep it synchronized (its history only)" in asked[1][1]
+    assert asked[2][0] == "Open it in Codex now?"
+    out = " ".join(capsys.readouterr().out.split())
+    assert "Current context (since the last compaction) · 3 messages" in out
+    assert "The current one (of 2) · “…as a list please”" in out
+    assert "Conversion verified" in out
+
+
+def test_a_conflict_and_the_opening_note_read_in_english(monkeypatch, capsys, lang):
+    lang("en")
+    heads = [
+        {"id": "rv_one", "source_key": "codex-win:a", "reason": "append", "created_at": None},
+        {"id": "rv_two", "source_key": "claude-win:b", "reason": "context_replacement", "created_at": None},
+    ]
+    service = LinkService(_link("conflict", heads))
+    monkeypatch.setattr("session_bridge.sync_cli._ensure_worker", lambda root: None)
+    asked = _answers(monkeypatch, "rv_two", "codex-win")
+    interactive._open_link(SimpleNamespace(data_dir="d"), service, service.link, PROFILES)
+    assert asked[0][1] == ["Codex · “request rv_one”", "Claude Code · “request rv_two”", "Back"]
+    assert asked[0][0].startswith("You continued the conversation in two places.")
+    out = " ".join(capsys.readouterr().out.split())
+    assert "A new Codex session will open with the latest from Claude Code." in out
+
+
+def test_home_rows_read_in_english(lang):
+    lang("en")
+    now = datetime.now(UTC)
+    head = {"id": "rv", "source_key": "claude-win:b", "created_at": (now - timedelta(minutes=3)).isoformat()}
+    synced = _link("synced", [head])
+    synced["selected_head"] = "rv"
+    conflict = _link("conflict", [head, {**head, "id": "rv2", "source_key": "codex-win:a"}])
+    conflict["id"], conflict["name"] = "ln_y", "Other"
+    rows = interactive.home_choices([], [synced, conflict], None)
+    assert rows[0].detail == "Synced · last continued in Claude Code · 3 min ago"
+    assert rows[1].detail == "Synced · Two continuations"
+    assert interactive._group_label(interactive.HERE) == "In this folder"
+    assert interactive._group_label(interactive.ELSEWHERE) == "In other projects"
+    untitled = interactive.home_choices([session("s", "", "/x", minutes=60 * 24 * 3)], [], None)
+    assert untitled[0].label == "Untitled" and "3 days ago" in untitled[0].detail
+
+
+def test_confirmation_accepts_english_and_the_universal_y_n(monkeypatch, capsys, lang):
+    lang("en")
+    answers = iter(["", "yes", "Y", "sí", "n"])
+    asked = []
+    monkeypatch.setattr(interactive, "prompt", lambda message, *a, **k: asked.append(message) or next(answers))
+    assert not interactive.confirm("Proceed?")
+    assert interactive.confirm("Proceed?") and interactive.confirm("Proceed?", default=True)
+    # "sí" is not an English answer: it is asked again, and "n" is no.
+    assert not interactive.confirm("Proceed?")
+    assert "[y/N]" in str(asked[0]) and "[Y/n]" in str(asked[2])
+    assert "Answer y or n" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("language", ["es", "en"])
+def test_menus_wrap_the_question_in_every_language(monkeypatch, lang, language):
+    lang(language)
+    seen = {}
+
+    def fake_choice(*, message, options, **kwargs):
+        seen["message"] = message
+        return options[0][0]
+
+    monkeypatch.setattr(interactive, "choice", fake_choice)
+    monkeypatch.setattr(interactive, "_columns", lambda: 40)
+    question = interactive.i18n.t("continuation.question_two")
+    interactive._ask(question, [("a", "x" * 80)])
+    lines = seen["message"].split("\n")
+    assert all(len(line) <= 39 for line in lines) and " ".join(lines) == question
+
+
+# Data in these flows (titles, folders, ids, product names), which no catalog holds.
+FLOW_DATA = {
+    "Claude", "Code", "Codex", "OpenCode", "Daily", "My", "task", "request", "as", "list", "table",
+    "please", "project", "destination", "gone", "current", "other", "Elsewhere", "newest", "Forked",
+    "plan", "Continúa", "desde", "aquí", "new", "session", "archive", "zip", "win", "codex", "claude",
+}  # fmt: skip
+
+
+def _flow(shown, asked, action):
+    try:
+        action()
+    except (StopIteration, IndexError):
+        pass  # the flow asked more than this test answers; what it showed so far is what counts
+    shown += [message + "\n" + "\n".join(labels) for message, labels in asked]
+
+
+def test_interactive_flows_show_no_text_outside_the_catalogs(monkeypatch, capsys, pseudo):
+    import re
+
+    shown = []
+    monkeypatch.setattr("session_bridge.cli._resume", lambda bridge, key: None)
+    monkeypatch.setattr("session_bridge.sync_cli._ensure_worker", lambda root: None)
+    monkeypatch.setattr(
+        interactive, "_ask_folder", lambda message, default="": shown.append(message) or "C:/destination"
+    )
+    monkeypatch.setattr(interactive, "_ask_text", lambda message, default="", **k: shown.append(message))
+    for options, answers in (
+        ({"variants": EDITED}, ("codex-win", "variant", "v_earlier0002", "convert", "done")),
+        ({"native": False, "missing_cwd": True}, ("codex-win", "handoff", "convert")),
+        ({"ambiguous": True}, ("codex-win", "all", "convert", "open")),
+    ):
+        ref = session("a", "My task", "C:/gone")
+        asked = _answers(monkeypatch, *answers)
+        _flow(shown, asked, lambda: interactive._convert(ConvertBridge(ref, **options), ref, PROFILES))
+    heads = [
+        {"id": "rv_one", "source_key": "codex-win:a", "reason": "append", "created_at": None},
+        {"id": "rv_two", "source_key": "claude-win:b", "reason": "context_replacement", "created_at": None},
+    ]
+    for link, answers in (
+        (_link("conflict", heads), ("rv_two", "codex-win")),
+        (_link("waiting"), ()),
+        (_link("synced", heads[:1], paused=True), ("resume", "codex-win")),
+    ):
+        service = LinkService(link)
+        asked = _answers(monkeypatch, *answers)
+        _flow(
+            shown,
+            asked,
+            lambda: interactive._open_link(SimpleNamespace(data_dir="d"), service, service.link, PROFILES),
+        )
+    sessions = [
+        session("n", "Elsewhere newest", "/other"),
+        session("o", "", "/current", minutes=60 * 24 * 40),
+        session("f", "Forked plan", "/current", tool="codex", profile="codex-win", parent_id="o"),
+    ]
+    rows = interactive.home_choices(sessions, [_link("conflict", heads), _link("error")], "/current")
+    shown += [f"{row.label} {row.detail} {interactive._group_label(row.group)}" for row in rows]
+    with create_app_session(output=DummyOutput()):
+        picker = interactive._Picker(
+            rows,
+            heading=[],
+            placeholder="home.placeholder",
+            empty="home.empty",
+            noun="picker.count.conversation",
+            group_label=interactive._group_label,
+        )
+        for query in ("", "zzz"):
+            picker.buffer.text = query
+            shown.append("".join(fragment for _, fragment in picker._lines()))
+            shown.append("".join(fragment for _, fragment in picker._status()))
+    shown.append(capsys.readouterr().out)
+    stray = set(re.findall(r"[^\W\d_]{2,}", pseudo("\n".join(shown)))) - FLOW_DATA
+    assert stray == set(), "\n".join(shown)

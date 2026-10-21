@@ -25,18 +25,14 @@ def data_home() -> Path:
 
 def validate_profile(profile: Profile) -> None:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", profile.id):
-        raise BridgeError(
-            "invalid_profile", "El perfil necesita un identificador sencillo sin espacios ni dos puntos."
-        )
+        raise BridgeError("invalid_profile", "error.invalid_profile.identifier")
     if not profile.home or "\x00" in profile.home:
-        raise BridgeError("invalid_profile", "La carpeta del perfil no es válida.")
+        raise BridgeError("invalid_profile", "error.invalid_profile.folder")
     if profile.environment == "wsl":
         if not profile.distro or not profile.helper or not profile.home.startswith("/"):
-            raise BridgeError(
-                "invalid_profile", "El perfil WSL necesita distribución, Python del ayudante y ruta Linux."
-            )
+            raise BridgeError("invalid_profile", "error.invalid_profile.wsl_fields")
     elif not Path(profile.home).is_absolute():
-        raise BridgeError("invalid_profile", "La carpeta del perfil debe ser absoluta.")
+        raise BridgeError("invalid_profile", "error.invalid_profile.folder_absolute")
 
 
 def executable(tool: str) -> str | None:

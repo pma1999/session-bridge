@@ -311,3 +311,92 @@ def test_wsl_install_requires_bridge_wheel_without_starting_distro(monkeypatch, 
         wsl.install("Ubuntu", wheel)
     assert error.value.code == "invalid_wheel"
     assert calls == []
+
+
+# The helper in WSL and the CLI in Windows may be different versions and speak different languages --
+
+WSL_PROFILE = Profile(
+    id="p", tool="codex", environment="wsl", home="/home/me", distro="Ubuntu", helper="/usr/bin/python3"
+)
+
+
+def _helper_answers(monkeypatch, response):
+    """Make the helper answer ``response``; returns the environment each call was given."""
+    environments = []
+    monkeypatch.setattr(wsl, "_wsl_exe", lambda: "wsl.exe")
+    monkeypatch.setattr(
+        wsl,
+        "status",
+        lambda: {"available": True, "distributions": [{"name": "Ubuntu", "running": True, "version": "2"}]},
+    )
+
+    def run(argv, **kwargs):
+        environments.append(kwargs["env"])
+        body = json.dumps({"protocol_version": 1, **response}, ensure_ascii=False)
+        return SimpleNamespace(returncode=0, stdout=body.encode("utf-8"), stderr=b"")
+
+    monkeypatch.setattr(wsl.subprocess, "run", run)
+    return environments
+
+
+def test_the_helper_is_told_the_language_through_wslenv(monkeypatch, lang):
+    lang("en")
+    monkeypatch.setenv("WSLENV", "USERPROFILE/p")
+    environments = _helper_answers(monkeypatch, {"ok": True, "data": None})
+    wsl.call(WSL_PROFILE, "discover", {})
+    assert environments[0]["SESSIONBRIDGE_LANG"] == "en"
+    assert environments[0]["WSLENV"] == "USERPROFILE/p:SESSIONBRIDGE_LANG/u"
+    monkeypatch.delenv("WSLENV")
+    wsl.call(WSL_PROFILE, "discover", {})
+    assert environments[1]["WSLENV"] == "SESSIONBRIDGE_LANG/u"
+
+
+def test_an_older_helper_that_answers_in_spanish_reads_in_english(monkeypatch, lang):
+    lang("en")
+    # Before 0.7 the helper sent no key, and its message was the Spanish text of the catalog.
+    error = {"code": "native_unsupported", "message": "Versión nativa no verificada; selecciona explícitamente el modo handoff.", "details": {"tool": "codex"}}  # noqa: E501
+    _helper_answers(monkeypatch, {"ok": False, "error": error})
+    with pytest.raises(BridgeError) as raised:
+        wsl.call(WSL_PROFILE, "discover", {})
+    assert raised.value.code == "native_unsupported" and raised.value.details == {"tool": "codex"}
+    assert raised.value.message == "This native version is not verified; choose handoff mode explicitly."
+
+
+def test_a_helper_key_is_rendered_here_and_an_unknown_one_keeps_its_text(monkeypatch, lang):
+    lang("en")
+    error = {"code": "cwd_missing", "key": "error.cwd_missing.target", "message": "La carpeta de destino no existe."}
+    _helper_answers(monkeypatch, {"ok": False, "error": error})
+    with pytest.raises(BridgeError) as raised:
+        wsl.call(WSL_PROFILE, "discover", {})
+    assert raised.value.message == "The target folder does not exist."
+    # A newer helper may have a key this version lacks: its own wording is shown, not the bare key.
+    newer = {"code": "cwd_missing", "key": "error.cwd_missing.from_the_future", "message": "Folder gone."}
+    _helper_answers(monkeypatch, {"ok": False, "error": newer})
+    with pytest.raises(BridgeError) as raised:
+        wsl.call(WSL_PROFILE, "discover", {})
+    assert raised.value.message == "Folder gone." and raised.value.code == "cwd_missing"
+
+
+def test_a_helper_error_without_a_valid_code_or_text_still_reads_as_an_error(monkeypatch, lang):
+    lang("en")
+    _helper_answers(monkeypatch, {"ok": False, "error": {"code": "Not A Code!", "message": ""}})
+    with pytest.raises(BridgeError) as raised:
+        wsl.call(WSL_PROFILE, "discover", {})
+    assert raised.value.code == "wsl_helper_error"
+    assert raised.value.message == wsl.i18n.t("error.wsl_helper_error")
+
+
+@pytest.mark.parametrize(("sent", "expected"), [(None, "es"), ("en", "en"), ("es", "es"), ("fr", "es")])
+def test_the_helper_writes_in_the_language_it_is_sent_and_spanish_otherwise(monkeypatch, capsys, sent, expected):
+    class FakeStdin:
+        buffer = SimpleNamespace(read=lambda size: b'{"protocol_version":1,"op":"not-allowed","args":{}}')
+
+    if sent is None:
+        monkeypatch.delenv("SESSIONBRIDGE_LANG", raising=False)
+    else:
+        monkeypatch.setenv("SESSIONBRIDGE_LANG", sent)
+    monkeypatch.setattr(helper.sys, "stdin", FakeStdin())
+    helper.main()
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["key"] == "error.unsupported_helper_operation"
+    assert error["message"] == wsl.i18n.t("error.unsupported_helper_operation", lang=expected)

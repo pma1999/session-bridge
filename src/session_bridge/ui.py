@@ -6,20 +6,11 @@ from datetime import UTC, datetime
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
+from . import i18n
+
 TOOL_NAMES = {"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode"}
 
-LINK_STATES = {
-    "synced": "Al día",
-    "waiting": "Esperando un turno terminado",
-    "conflict": "Varias continuaciones",
-    "paused": "En pausa",
-    "unlinked": "Desvinculada; historial conservado",
-    "error": "No se puede comprobar el origen",
-}
-
-REVISION_REASONS = {"append": "continuación", "context_replacement": "tras una compactación"}
-
-_MONTHS = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
+LINK_STATES = ("synced", "waiting", "conflict", "paused", "unlinked", "error")
 
 
 def visible(value: Any, *, preserve_newlines: bool = False) -> str:
@@ -51,7 +42,7 @@ def profile_label(profile: Any, profiles: list[Any] | None = None) -> str:
 
 def title(ref: Any) -> str:
     text = " ".join(str(getattr(ref, "title", "") or "").split())
-    return visible(text) if text else "Sin título"
+    return visible(text) if text else i18n.t("ui.untitled")
 
 
 def parse_time(value: str | None) -> datetime | None:
@@ -64,26 +55,37 @@ def parse_time(value: str | None) -> datetime | None:
     return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
 
 
-def relative_time(value: str | None, *, now: datetime | None = None) -> str:
+def _elapsed(moment: datetime, now: datetime) -> tuple[str, int]:
+    """How long ago, as a unit and an amount: the wording is the catalog's, per language."""
+    seconds = (now - moment).total_seconds()
+    if seconds < 60:
+        return "now", 0
+    if seconds < 3600:
+        return "minutes", int(seconds // 60)
+    days = (now.astimezone().date() - moment.astimezone().date()).days
+    if days == 0:
+        return "hours", int(seconds // 3600)
+    if days == 1:
+        return "yesterday", 1
+    if days < 7:
+        return "days", days
+    return "date", 0
+
+
+def relative_time(value: str | None, *, now: datetime | None = None, compact: bool = False) -> str:
+    """``hace 3 min``; ``compact`` drops the words a narrow terminal cannot afford (``3 min``)."""
     moment = parse_time(value)
     if moment is None:
         return ""
     now = now or datetime.now(UTC)
-    seconds = (now - moment).total_seconds()
-    if seconds < 60:
-        return "ahora"
-    if seconds < 3600:
-        return f"hace {int(seconds // 60)} min"
-    local, today = moment.astimezone(), now.astimezone()
-    days = (today.date() - local.date()).days
-    if days == 0:
-        return f"hace {int(seconds // 3600)} h"
-    if days == 1:
-        return "ayer"
-    if days < 7:
-        return f"hace {days} días"
-    label = f"{local.day} {_MONTHS[local.month - 1]}"
-    return label if local.year == today.year else f"{label} {local.year}"
+    unit, amount = _elapsed(moment, now)
+    if unit != "date":
+        return i18n.t(f"time.{unit}{'.short' if compact else ''}", count=amount)
+    local = moment.astimezone()
+    month = i18n.t(f"time.month.{local.month}")
+    if local.year == now.astimezone().year:
+        return i18n.t("time.date", day=local.day, month=month)
+    return i18n.t("time.date_year", day=local.day, month=month, year=local.year)
 
 
 SHORT_TOOL_NAMES = {"claude": "Claude", "codex": "Codex", "opencode": "OpenCode"}
@@ -91,10 +93,7 @@ SHORT_TOOL_NAMES = {"claude": "Claude", "codex": "Codex", "opencode": "OpenCode"
 
 def compact_time(value: str | None, *, now: datetime | None = None) -> str:
     """relative_time without words that a narrow terminal cannot afford."""
-    text = relative_time(value, now=now)
-    if text.startswith("hace "):
-        text = text[5:].replace(" días", " d")
-    return text
+    return relative_time(value, now=now, compact=True)
 
 
 def folder_name(value: str) -> str:
@@ -110,10 +109,69 @@ def folder_name(value: str) -> str:
 
 
 def link_state(link: dict) -> str:
-    if link.get("state") == "conflict":
-        return "Dos continuaciones" if len(link.get("heads") or []) <= 2 else "Varias continuaciones"
     state = link.get("state", "")
-    return LINK_STATES.get(state, visible(state))
+    if state == "conflict":
+        many = len(link.get("heads") or []) > 2
+        return i18n.t("link.state.conflict_many" if many else "link.state.conflict_two")
+    return i18n.t(f"link.state.{state}") if state in LINK_STATES else visible(state)
+
+
+def endpoint_state(state: str) -> str:
+    """Why one source of a link is not up to date."""
+    return i18n.t(f"link.endpoint.{state}") if state in ("waiting", "error", "detached") else visible(state)
+
+
+def code_text(code: str) -> str:
+    """What a stored error code means, with the code itself for searching or reporting it."""
+    code = str(code)
+    if i18n.has(f"error.{code}", i18n.DEFAULT):
+        return i18n.t("ui.code_text", text=i18n.t(f"error.{code}"), code=visible(code))
+    return visible(code)
+
+
+def warning_text(warning: str) -> str:
+    """A reader's warning code in words; ``code:detail`` codes carry one value, such as a line.
+
+    Records from before 0.7 may hold a sentence instead of a code; a catalog recognises it.
+    """
+    code, _, detail = str(warning).partition(":")
+    if i18n.has(f"warning.{code}", i18n.DEFAULT):
+        return i18n.t(f"warning.{code}", detail=visible(detail))
+    if i18n.has(f"error.{code}", i18n.DEFAULT):
+        return i18n.t(f"error.{code}")
+    return visible(i18n.text(str(warning)))
+
+
+def value_text(value: Any) -> str:
+    """A plain field value in words: yes or no for a flag, a dash for nothing."""
+    if isinstance(value, bool):
+        return i18n.t("value.yes" if value else "value.no")
+    if value is None:
+        return i18n.t("value.none")
+    return str(value)
+
+
+def discovery_error(item: Any) -> str:
+    """A profile that could not be read, from what discovery recorded (also by older versions)."""
+    if not isinstance(item, dict):
+        return visible(item)
+    key = item.get("key")
+    if i18n.is_key(key) and i18n.has(key, i18n.DEFAULT):
+        return i18n.t(key)
+    if item.get("message"):
+        return visible(i18n.text(str(item["message"])))
+    return code_text(item.get("code", ""))
+
+
+def field_label(name: Any) -> str:
+    """The label for a field of a result shown as plain key-value lines."""
+    key = f"field.{name}"
+    return i18n.t(key) if i18n.has(key, i18n.DEFAULT) else visible(name)
+
+
+def revision_reason(reason: str | None) -> str:
+    """Why a revision exists, when that tells the user something (a continuation, a compaction)."""
+    return i18n.t(f"link.reason.{reason}") if reason in ("append", "context_replacement") else ""
 
 
 def _endpoint(link: dict, key: str) -> dict | None:
@@ -133,8 +191,8 @@ def head_origin(head: dict, link: dict) -> str:
     name = endpoint_tool(link, endpoint, key)
     if endpoint and endpoint.get("role") == "superseded":
         if endpoint.get("origin") == "original":
-            return f"la conversación original de {name}"
-        return f"una copia anterior de {name}"
+            return i18n.t("link.origin.original", name=name)
+        return i18n.t("link.origin.earlier_copy", name=name)
     return name
 
 
@@ -161,14 +219,14 @@ def variant_label(info: Any) -> str:
     """One line that tells a version of an edited conversation apart from the others.
 
     What was typed goes last: a narrow terminal cuts it, never when or how long the version is."""
-    parts = ["La actual" if info.current else "Otra variante"]
+    parts = [i18n.t("variant.current" if info.current else "variant.other")]
     when = relative_time(info.updated_at)
     if when:
         parts.append(when)
-    parts.append(f"{info.messages} mensaje" + ("" if info.messages == 1 else "s"))
+    parts.append(i18n.t("variant.messages", count=info.messages))
     if info.prompt:
-        parts.append("«" + _excerpt(info.prompt) + "»")
+        parts.append(i18n.quote(_excerpt(info.prompt)))
     elif info.reply:
         # The same words were sent again; what came back is what differs.
-        parts.append("respuesta «" + _excerpt(info.reply) + "»")
+        parts.append(i18n.t("variant.reply", text=_excerpt(info.reply)))
     return " · ".join(parts)

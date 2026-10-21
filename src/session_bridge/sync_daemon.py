@@ -18,6 +18,7 @@ import time
 import uuid
 from pathlib import Path
 
+from . import i18n
 from .errors import BridgeError
 
 _START_TIMEOUT = 10.0
@@ -43,7 +44,7 @@ def _root(data_dir: Path | None, *, create: bool = True) -> Path:
             root.mkdir(parents=True, exist_ok=True)
         return root
     except (OSError, ValueError):
-        raise BridgeError("sync_worker_io", "No se puede acceder al directorio del trabajador.") from None
+        raise BridgeError("sync_worker_io", "error.sync_worker_io.folder") from None
 
 
 class _Lock:
@@ -53,7 +54,7 @@ class _Lock:
 
     def acquire(self) -> bool:
         if self.path.is_symlink():
-            raise BridgeError("sync_worker_io", "La ruta del bloqueo no pertenece al trabajador.")
+            raise BridgeError("sync_worker_io", "error.sync_worker_io.lock_path")
         stream = os.fdopen(os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600), "r+b", buffering=0)
         try:
             if os.fstat(stream.fileno()).st_size == 0:
@@ -164,7 +165,7 @@ def status(data_dir: Path | None = None) -> dict:
                 result[key] = value
         return result
     except OSError:
-        raise BridgeError("sync_worker_io", "No se pudo consultar el trabajador.") from None
+        raise BridgeError("sync_worker_io", "error.sync_worker_io.query") from None
 
 
 def _control(root: Path) -> _Lock:
@@ -172,7 +173,7 @@ def _control(root: Path) -> _Lock:
     deadline = time.monotonic() + _CONTROL_TIMEOUT
     while not lock.acquire():
         if time.monotonic() >= deadline:
-            raise BridgeError("sync_worker_busy", "Hay otra operación del trabajador en curso.")
+            raise BridgeError("sync_worker_busy")
         time.sleep(0.05)
     return lock
 
@@ -186,11 +187,9 @@ def start(data_dir: Path | None = None) -> dict:
         if current["running"]:
             if current.get("healthy"):
                 return {**current, "started": False}
-            raise BridgeError(
-                "sync_worker_unresponsive", "El trabajador no responde; consulta worker-status."
-            )
+            raise BridgeError("sync_worker_unresponsive")
         generation = uuid.uuid4().hex
-        env = os.environ.copy()
+        env = i18n.child_environment(os.environ.copy())
         env["SESSIONBRIDGE_HOME"] = str(root)
         # Preserve PYTHONPATH: editable/source-tree runtimes require it. No global
         # environment, native discovery variables, startup tasks or shells change.
@@ -216,9 +215,9 @@ def start(data_dir: Path | None = None) -> dict:
             time.sleep(0.05)
         # Cooperative cancellation also handles a child delayed until after timeout.
         _write(root / f"worker-stop-{generation}.json", {"generation": generation})
-        raise BridgeError("sync_worker_start_failed", "No se pudo confirmar el inicio del trabajador.")
+        raise BridgeError("sync_worker_start_failed")
     except OSError:
-        raise BridgeError("sync_worker_io", "No se pudo iniciar el trabajador.") from None
+        raise BridgeError("sync_worker_io", "error.sync_worker_io.start") from None
     finally:
         control.release()
 
@@ -233,7 +232,7 @@ def stop(data_dir: Path | None = None) -> dict:
             return {**current, "acknowledged": False}
         generation = current.get("generation")
         if not generation:
-            raise BridgeError("sync_worker_identity", "No se pudo verificar la identidad del trabajador.")
+            raise BridgeError("sync_worker_identity")
         _write(root / f"worker-stop-{generation}.json", {"generation": generation})
         deadline = time.monotonic() + _STOP_TIMEOUT
         while time.monotonic() < deadline:
@@ -249,9 +248,9 @@ def stop(data_dir: Path | None = None) -> dict:
             if not held and not ack:
                 return {"running": False, "state": "stale", "acknowledged": False}
             time.sleep(0.05)
-        raise BridgeError("sync_worker_stop_timeout", "El trabajador aún no ha confirmado la parada.")
+        raise BridgeError("sync_worker_stop_timeout")
     except OSError:
-        raise BridgeError("sync_worker_io", "No se pudo solicitar la parada del trabajador.") from None
+        raise BridgeError("sync_worker_io", "error.sync_worker_io.stop") from None
     finally:
         control.release()
 
@@ -272,7 +271,7 @@ def _poll(service) -> dict:
         return {
             "changed": 0,
             "links": [],
-            "errors": [{"code": code, "message": "No se pudo comprobar la sincronización."}],
+            "errors": [{"code": code, "message": i18n.t("error.sync_poll_failed")}],
         }
 
 
@@ -281,16 +280,16 @@ def run(
 ) -> dict:
     """Reconcile periodically; filesystem silence never determines completion."""
     if not math.isfinite(interval) or not 0.1 <= interval <= 3600:
-        raise BridgeError("sync_interval", "El intervalo debe estar entre 0,1 y 3600 segundos.")
+        raise BridgeError("sync_interval")
     root = _root(data_dir)
     if once:
         return _poll(_service(root))
     generation = _generation or uuid.uuid4().hex
     if not _TOKEN.fullmatch(generation):
-        raise BridgeError("sync_worker_identity", "La identidad del trabajador no es válida.")
+        raise BridgeError("sync_worker_identity", "error.sync_worker_identity.invalid")
     lock = _Lock(root / "worker.lock")
     if not lock.acquire():
-        raise BridgeError("sync_worker_running", "Ya hay un trabajador en ejecución.")
+        raise BridgeError("sync_worker_running")
     receipt = {
         "schema_version": 1,
         "generation": generation,
@@ -324,7 +323,7 @@ def run(
     except KeyboardInterrupt:
         pass
     except OSError:
-        raise BridgeError("sync_worker_io", "No se pudo actualizar el estado del trabajador.") from None
+        raise BridgeError("sync_worker_io", "error.sync_worker_io.state") from None
     finally:
         try:
             # Still holding the lifetime lock: no successor can publish yet. Do
@@ -341,7 +340,7 @@ def run(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Trabajador local de Session Bridge.")
+    parser = argparse.ArgumentParser(description=i18n.t("worker.description"))
     parser.add_argument("--generation", required=True)
     args = parser.parse_args()
     try:

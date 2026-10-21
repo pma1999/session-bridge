@@ -15,7 +15,7 @@ def validate_id(tool, native_id):
         r"ses_[a-zA-Z0-9]+" if tool == "opencode" else r"[a-fA-F0-9]{8}-(?:[a-fA-F0-9]{4}-){3}[a-fA-F0-9]{12}"
     )
     if not re.fullmatch(pattern, native_id):
-        raise BridgeError("invalid_native_id", "Identificador nativo inválido.")
+        raise BridgeError("invalid_native_id")
 
 
 def env_for_profile(profile):
@@ -32,7 +32,7 @@ def env_for_profile(profile):
 
 def executable(profile):
     if not profile.executable:
-        raise BridgeError("client_missing", "El perfil no tiene ejecutable nativo configurado.")
+        raise BridgeError("client_missing")
     return profile.executable
 
 
@@ -50,20 +50,16 @@ def run(profile, args, *, cwd, timeout=90):
             check=False,
         )
     except subprocess.TimeoutExpired:
-        raise BridgeError(
-            "native_timeout", "El cliente agotó el tiempo; reconcilia antes de reintentar."
-        ) from None
+        raise BridgeError("native_timeout", "error.native_timeout.client") from None
     except OSError:
-        raise BridgeError("client_unavailable", "No se pudo iniciar el cliente nativo.") from None
+        raise BridgeError("client_unavailable") from None
 
 
 def check_version(profile, expected, *, cwd):
     result = run(profile, ["--version"], cwd=cwd, timeout=15)
     found = re.search(r"(?<!\d)(\d+\.\d+\.\d+)(?!\d)", result.stdout)
     if result.returncode or not found or found.group(1) != expected:
-        raise BridgeError(
-            "native_version_changed", "La versión instalada no coincide con la compatibilidad verificada."
-        )
+        raise BridgeError("native_version_changed")
 
 
 def detect_version(profile):

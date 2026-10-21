@@ -39,13 +39,13 @@ def native_path(value):
 def scoped(path, base):
     path = Path(native_path(path)).resolve()
     if not path.is_relative_to(Path(native_path(base)).resolve()):
-        raise BridgeError("source_path_invalid", "La ruta no pertenece al perfil seleccionado.")
+        raise BridgeError("source_path_invalid", "error.source_path_invalid.profile")
     return path
 
 
 def guard(ref, snapshot):
     if ref.active is True and not snapshot:
-        raise BridgeError("source_active", "La sesión de origen está activa; solicita una instantánea.")
+        raise BridgeError("source_active")
     return (
         ["source_activity_unknown"]
         if ref.active is None
@@ -123,7 +123,7 @@ class _ZstdReader(io.RawIOBase):
             self.input_pending = b""
             if not chunk:
                 if not self.decoder.eof or not self.saw_frame:
-                    raise BridgeError("source_corrupt", "El archivo comprimido de origen está incompleto.")
+                    raise BridgeError("source_corrupt", "error.source_corrupt.incomplete")
                 self.finished = True
                 break
             if self.decoder.eof:
@@ -133,7 +133,7 @@ class _ZstdReader(io.RawIOBase):
             if self.total > MAX_DECOMPRESSED_BYTES:
                 raise BridgeError(
                     "source_too_large",
-                    "El archivo supera el límite de descompresión segura.",
+                    "error.source_too_large.decompression",
                     limit_bytes=MAX_DECOMPRESSED_BYTES,
                 )
             self.pending.extend(output)
@@ -154,7 +154,7 @@ def iter_records(path, *, snapshot=False, warnings=None):
         if before.st_size > MAX_SOURCE_BYTES:
             raise BridgeError(
                 "source_too_large",
-                "El archivo supera el límite de captura segura.",
+                "error.source_too_large.file",
                 limit_bytes=MAX_SOURCE_BYTES,
             )
         with path.open("rb") as source:
@@ -170,7 +170,7 @@ def iter_records(path, *, snapshot=False, warnings=None):
                 if len(encoded) > MAX_LINE_BYTES or total > MAX_DECOMPRESSED_BYTES:
                     raise BridgeError(
                         "source_too_large",
-                        "Un registro supera el límite de captura segura.",
+                        "error.source_too_large.record",
                         limit_bytes=MAX_LINE_BYTES
                         if len(encoded) > MAX_LINE_BYTES
                         else MAX_DECOMPRESSED_BYTES,
@@ -190,9 +190,9 @@ def iter_records(path, *, snapshot=False, warnings=None):
     except BridgeError:
         raise
     except (OSError, UnicodeError) as exc:
-        raise BridgeError("source_unreadable", "No se puede leer la sesión de origen.") from exc
+        raise BridgeError("source_unreadable") from exc
     except Exception as exc:
-        raise BridgeError("source_corrupt", "El archivo comprimido de origen está dañado.") from exc
+        raise BridgeError("source_corrupt", "error.source_corrupt.damaged") from exc
     changed = (before.st_size, before.st_mtime_ns, before.st_ino) != (
         after.st_size,
         after.st_mtime_ns,
@@ -200,9 +200,7 @@ def iter_records(path, *, snapshot=False, warnings=None):
     )
     if changed:
         if not snapshot:
-            raise BridgeError(
-                "source_changed", "La sesión cambió durante la captura; solicita una instantánea."
-            )
+            raise BridgeError("source_changed", "error.source_changed.session")
         warnings.append("source_changed_during_snapshot")
 
 
@@ -220,9 +218,7 @@ def database(path):
         con.execute("BEGIN")
         yield con
     except sqlite3.Error as exc:
-        raise BridgeError(
-            "source_schema_unsupported", "No se puede leer el esquema de sesiones de origen."
-        ) from exc
+        raise BridgeError("source_schema_unsupported", "error.source_schema_unsupported.sessions") from exc
     finally:
         if "con" in locals():
             con.close()
@@ -273,7 +269,7 @@ def _capture_managed_attachment(target):
     if before.st_size > MAX_ATTACHMENT_BYTES:
         raise BridgeError(
             "source_too_large",
-            "Un adjunto gestionado supera el límite de captura segura.",
+            "error.source_too_large.managed_attachment",
             limit_bytes=MAX_ATTACHMENT_BYTES,
         )
     with target.open("rb") as handle:
@@ -281,7 +277,7 @@ def _capture_managed_attachment(target):
     if len(payload) > MAX_ATTACHMENT_BYTES:
         raise BridgeError(
             "source_too_large",
-            "Un adjunto gestionado supera el límite de captura segura.",
+            "error.source_too_large.managed_attachment",
             limit_bytes=MAX_ATTACHMENT_BYTES,
         )
     sha = hashlib.sha256(payload).hexdigest()
@@ -303,7 +299,7 @@ def _capture_managed_attachment(target):
         or (before.st_size, before.st_mtime_ns, before.st_ino)
         != (after.st_size, after.st_mtime_ns, after.st_ino)
     ):
-        raise BridgeError("source_changed", "Un adjunto gestionado cambió durante su captura.")
+        raise BridgeError("source_changed", "error.source_changed.attachment")
     return payload, sha
 
 
@@ -379,7 +375,7 @@ def attachments_in(records, base):
                         if len(encoded) > MAX_ATTACHMENT_BYTES * 4 // 3 + 4:
                             raise BridgeError(
                                 "source_too_large",
-                                "Un adjunto embebido supera el límite de captura segura.",
+                                "error.source_too_large.embedded_attachment",
                                 limit_bytes=MAX_ATTACHMENT_BYTES,
                             )
                         decoded = base64.b64decode(encoded, validate=True)
@@ -387,7 +383,7 @@ def attachments_in(records, base):
                         if len(decoded) > MAX_ATTACHMENT_BYTES or embedded_total > MAX_ATTACHMENT_TOTAL_BYTES:
                             raise BridgeError(
                                 "source_too_large",
-                                "Los adjuntos superan el límite de captura segura.",
+                                "error.source_too_large.attachments",
                                 limit_bytes=MAX_ATTACHMENT_TOTAL_BYTES,
                             )
                         attachment.data_base64 = encoded
@@ -401,9 +397,7 @@ def attachments_in(records, base):
                     claimed_managed = any(lexical.is_relative_to(root) for root in managed_roots)
                     is_managed = any(target.is_relative_to(root) for root in managed_roots)
                     if claimed_managed and not is_managed:
-                        raise BridgeError(
-                            "source_path_invalid", "Un adjunto gestionado sale de las rutas permitidas."
-                        )
+                        raise BridgeError("source_path_invalid", "error.source_path_invalid.attachment")
                     if is_managed:
                         if target.is_file():
                             attachment.path = str(target)
@@ -415,7 +409,7 @@ def attachments_in(records, base):
                                 if embedded_total > MAX_ATTACHMENT_TOTAL_BYTES:
                                     raise BridgeError(
                                         "source_too_large",
-                                        "Los adjuntos superan el límite de captura segura.",
+                                        "error.source_too_large.attachments",
                                         limit_bytes=MAX_ATTACHMENT_TOTAL_BYTES,
                                     )
                                 attachment.data_base64 = base64.b64encode(payload).decode("ascii")

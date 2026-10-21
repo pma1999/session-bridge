@@ -165,9 +165,9 @@ def resolve(conversation: Conversation, variant: str) -> str:
     matches = [identity for identity, _, _ in loaded if identity == variant]
     matches = matches or [identity for identity, _, _ in loaded if identity.startswith(variant)]
     if not matches:
-        raise BridgeError("variant_not_found", "La conversación no tiene esa variante.", variant=variant)
+        raise BridgeError("variant_not_found", variant=variant)
     if len(matches) > 1:
-        raise BridgeError("variant_ambiguous", "Hay varias variantes con ese prefijo.", candidates=matches)
+        raise BridgeError("variant_ambiguous", candidates=matches)
     return matches[0]
 
 

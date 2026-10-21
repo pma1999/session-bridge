@@ -22,7 +22,7 @@ from prompt_toolkit.shortcuts import choice
 from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
 
-from . import ui
+from . import i18n, ui
 from .catalog import is_subagent, same_directory, search_rank, search_text
 from .errors import BridgeError
 
@@ -41,7 +41,8 @@ STYLE = Style.from_dict(
 
 BACK = object()
 NARROW = 72  # below this width, rows show their brief detail
-HERE, ELSEWHERE = "En esta carpeta", "En otros proyectos"
+# Group identities; what they read as is the catalog's (home.group.<identity>).
+HERE, ELSEWHERE = "here", "elsewhere"
 
 
 def _out():
@@ -117,13 +118,16 @@ class _Picker:
         heading: list[tuple[str, str]],
         placeholder: str,
         empty: str,
-        noun: tuple[str, str],
+        noun: str,
         query: str = "",
+        group_label=None,
     ):
+        # placeholder, empty ({query}) and noun ({count}) are catalog keys.
         self.choices = choices
         self.heading = heading
         self.empty = empty
         self.noun = noun
+        self.group_label = group_label or (lambda group: group)
         self.matches = ranked(choices, query)
         self.selected = 0
         self.offset = 0
@@ -168,7 +172,7 @@ class _Picker:
         search = BufferControl(
             buffer=self.buffer,
             input_processors=[
-                AfterInput(lambda: "" if self.buffer.text else placeholder, style="class:muted")
+                AfterInput(lambda: "" if self.buffer.text else i18n.t(placeholder), style="class:muted")
             ],
         )
         self.app: Application = Application(
@@ -250,7 +254,7 @@ class _Picker:
 
     def _empty_lines(self) -> list[str]:
         query = " ".join(self.buffer.text.split())
-        message = self.empty.format(query=ui.visible(query))
+        message = i18n.t(self.empty, query=ui.visible(query))
         return textwrap.wrap(message, max(10, self._size().columns - 3)) or [""]
 
     def _lines(self):
@@ -273,7 +277,7 @@ class _Picker:
             if number:
                 fragments.append(("", "\n"))
             if kind == "group":
-                fragments.append(("class:group", "  " + _fit(value, width - 2)))
+                fragments.append(("class:group", "  " + _fit(self.group_label(value), width - 2)))
                 continue
             item = self.matches[value]
             chosen = value == self.selected
@@ -291,19 +295,14 @@ class _Picker:
     def _status(self):
         total, shown = len(self.choices), len(self.matches)
         count = (
-            f"{shown} de {total}"
+            i18n.t("picker.matches", shown=shown, total=total)
             if self.buffer.text.strip()
-            else f"{total} {self.noun[0] if total == 1 else self.noun[1]}"
+            else i18n.t(self.noun, count=total)
         )
         width = self._size().columns - 1
         # Drop the hints a reader needs least when the terminal is narrow.
-        for hints in (
-            " · ↑↓ elegir · Intro abrir · Esc salir",
-            " · Intro abrir · Esc salir",
-            " · Esc salir",
-            "",
-        ):
-            text = f"  {count}{hints}"
+        for hints in ("picker.hints.full", "picker.hints.short", "picker.hints.minimal", None):
+            text = f"  {count}" + (" · " + i18n.t(hints) if hints else "")
             if get_cwidth(text) <= width:
                 break
         return [("class:muted", _fit(text, width))]
@@ -334,14 +333,23 @@ def pick(
     choices: list[Choice],
     *,
     heading: list[tuple[str, str]],
-    placeholder: str = "Escribe para buscar",
-    empty: str = "Nada coincide con «{query}».",
-    noun: tuple[str, str] = ("opción", "opciones"),
+    placeholder: str = "picker.placeholder",
+    empty: str = "picker.empty",
+    noun: str = "picker.count.option",
     query: str = "",
+    group_label=None,
 ) -> tuple[Any, str]:
-    """Search-as-you-type list: returns the chosen value (None on Esc) and the final query."""
+    """Search-as-you-type list: returns the chosen value (None on Esc) and the final query.
+
+    The texts are catalog keys: ``empty`` gets the ``query`` and ``noun`` the ``count``."""
     return _Picker(
-        choices, heading=heading, placeholder=placeholder, empty=empty, noun=noun, query=query
+        choices,
+        heading=heading,
+        placeholder=placeholder,
+        empty=empty,
+        noun=noun,
+        query=query,
+        group_label=group_label,
     ).run()
 
 
@@ -427,16 +435,19 @@ def _ask_folder(message: str, default: str = "") -> str | None:
 
 
 def confirm(message: str, default: bool = False) -> bool:
-    suffix = " [S/n]: " if default else " [s/N]: "
+    suffix = i18n.t("confirm.default_yes" if default else "confirm.default_no")
+    # The words of the language in use, and the English ones, which every keyboard user knows.
+    yes = set(i18n.t("confirm.yes_words").split()) | {"y", "yes"}
+    no = set(i18n.t("confirm.no_words").split()) | {"n", "no"}
     while True:
-        answer = prompt(message + suffix).strip().casefold()
+        answer = prompt(f"{message} {suffix}: ").strip().casefold()
         if not answer:
             return default
-        if answer in {"s", "si", "sí", "y", "yes"}:
+        if answer in yes:
             return True
-        if answer in {"n", "no"}:
+        if answer in no:
             return False
-        print("Responde s o n; Intro conserva la opción indicada.")
+        print(i18n.t("confirm.retry"))
 
 
 # ---------------------------------------------------------------------------
@@ -446,7 +457,7 @@ def confirm(message: str, default: bool = False) -> bool:
 def _session_detail(ref, *, folder: bool) -> str:
     parts = [ui.tool_name(ref.tool), ui.relative_time(ref.updated_at or ref.created_at)]
     if ref.archived:
-        parts.append("archivada")
+        parts.append(i18n.t("home.archived"))
     if folder and ref.cwd:
         parts.append(ui.folder_name(ref.cwd))
     return " · ".join(part for part in parts if part)
@@ -463,7 +474,9 @@ def _link_summary(link) -> str:
     head = ui.chosen_head(link)
     if link.get("state") == "synced" and head:
         when = ui.relative_time(head.get("created_at"))
-        return " · ".join(part for part in ("última vez en " + ui.head_origin(head, link), when) if part)
+        return " · ".join(
+            part for part in (i18n.t("home.last_in", origin=ui.head_origin(head, link)), when) if part
+        )
     return ui.link_state(link)
 
 
@@ -488,7 +501,7 @@ def home_choices(sessions, links, cwd: str | None) -> list[Choice]:
 
     for link in links:
         where = place(_link_cwds(link))
-        detail = "Sincronizada · " + _link_summary(link)
+        detail = i18n.t("home.synced") + " · " + _link_summary(link)
         folders = [path for path in _link_cwds(link) if path]
         if where == ELSEWHERE and folders:
             detail += " · " + ui.folder_name(folders[0])
@@ -498,9 +511,10 @@ def home_choices(sessions, links, cwd: str | None) -> list[Choice]:
                 value=("link", link),
                 label=ui.visible(link.get("name") or link["id"]),
                 detail=detail,
-                brief="Sincronizada",
+                brief=i18n.t("home.synced"),
                 marker="●",
-                search=f"{link.get('name', '')} {' '.join(folders)} {link['id']} {keys} sincronizada",
+                # Typing "synced" finds these in any language.
+                search=f"{link.get('name', '')} {' '.join(folders)} {link['id']} {keys} {_synced_words()}",
             )
         )
     for ref in sessions:
@@ -533,6 +547,14 @@ def home_choices(sessions, links, cwd: str | None) -> list[Choice]:
     return groups[HERE] + groups[ELSEWHERE]
 
 
+def _synced_words() -> str:
+    return " ".join(i18n.t("home.synced", lang=lang) for lang in i18n.available())
+
+
+def _group_label(group: str) -> str:
+    return i18n.t(f"home.group.{group}") if group in (HERE, ELSEWHERE) else group
+
+
 def run_home(bridge: Any, *, cwd: str | None = None) -> Any:
     """Find any conversation, then convert it or open its synchronized copy."""
     with _colour_session():
@@ -543,7 +565,7 @@ def _home(bridge: Any, cwd: str | None) -> Any:
     from .sync import SyncService
 
     notices = []
-    with _status("Buscando conversaciones…"):
+    with _status(i18n.t("home.searching")):
         sessions = bridge.list_sessions(cwd=None)
         try:
             service = SyncService(bridge=bridge)
@@ -551,35 +573,31 @@ def _home(bridge: Any, cwd: str | None) -> Any:
         except BridgeError:
             # Everything else stays usable while the synchronization store is busy or damaged.
             service, links = None, []
-            notices.append(
-                "No se pudieron leer las conversaciones sincronizadas; vuelve a intentarlo en unos segundos."
-            )
+            notices.append(i18n.t("home.links_unavailable"))
     profiles = list(bridge.profiles())
     choices = home_choices(sessions, links, cwd)
     heading = [
         ("class:title", "Session Bridge"),
-        ("class:muted", "  ·  " + (ui.visible(cwd) if cwd else "Todos los proyectos")),
+        ("class:muted", "  ·  " + (ui.visible(cwd) if cwd else i18n.t("home.all_projects"))),
     ]
     for warning in getattr(bridge, "discovery_errors", []):
-        message = (
-            warning.get("message", "No se pudo leer un perfil.") if isinstance(warning, dict) else warning
-        )
-        notices.append(message)
+        notices.append(ui.discovery_error(warning))
     for message in notices:
-        heading.append(("", "\nAviso: " + ui.visible(message)))
+        heading.append(("", "\n" + i18n.t("cli.warning", text=ui.visible(message))))
     if not choices:
-        _note("No se encontró ninguna conversación de Claude Code, Codex ni OpenCode.")
-        _note("Comprueba los perfiles configurados con `sessionbridge doctor`.", "dim")
+        _note(i18n.t("home.nothing_found"))
+        _note(i18n.t("home.check_profiles"), "dim")
         return None
     query = ""
     while True:
         picked, query = pick(
             choices,
             heading=heading,
-            placeholder="Busca por título, carpeta, asistente o ID",
-            empty="Ninguna conversación coincide con «{query}». Prueba con otras palabras, una carpeta o un ID.",
-            noun=("conversación", "conversaciones"),
+            placeholder="home.placeholder",
+            empty="home.empty",
+            noun="picker.count.conversation",
             query=query,
+            group_label=_group_label,
         )
         if picked is None:
             return None
@@ -599,8 +617,8 @@ def _home(bridge: Any, cwd: str | None) -> Any:
 
 def _context_label(context: str, context_from: str | None) -> str:
     if context_from:
-        return "Desde el mensaje elegido"
-    return "Historial completo" if context == "all" else "Contexto actual (desde la última compactación)"
+        return i18n.t("summary.context.chosen_start")
+    return i18n.t("summary.context.all" if context == "all" else "summary.context.current")
 
 
 def _variants(preview) -> list[Any]:
@@ -612,19 +630,16 @@ def _variants(preview) -> list[Any]:
 def _pick_variant(variants, chosen) -> Any:
     """The version to take; None is the one the source would resume."""
     options = [(None if info.current else info.id, ui.variant_label(info)) for info in variants]
-    answer = _ask(
-        "Editaste mensajes de esta conversación. ¿Qué variante quieres llevar?",
-        options + [(BACK, "Volver")],
-    )
+    answer = _ask(i18n.t("variant.question"), options + [(BACK, i18n.t("menu.back"))])
     return chosen if answer is BACK else answer
 
 
 def _pick_start(conversation) -> str | None:
-    speakers = {"user": "Tú", "assistant": "Asistente"}
+    speakers = {"user": i18n.t("start.you"), "assistant": i18n.t("start.assistant")}
     choices = [
         Choice(
             value=event.id,
-            label=" ".join(ui.visible(event.text).split()) or "(sin texto)",
+            label=" ".join(ui.visible(event.text).split()) or i18n.t("start.no_text"),
             detail=" · ".join(
                 part
                 for part in (speakers.get(event.role, event.role), ui.relative_time(event.timestamp))
@@ -638,9 +653,9 @@ def _pick_start(conversation) -> str | None:
         return None
     value, _ = pick(
         choices,
-        heading=[("class:title", "¿Desde qué mensaje empieza el contexto?")],
-        noun=("mensaje", "mensajes"),
-        empty="Ningún mensaje coincide con «{query}».",
+        heading=[("class:title", i18n.t("start.question"))],
+        noun="picker.count.message",
+        empty="start.empty",
     )
     return value
 
@@ -652,51 +667,49 @@ def _summary(ref, target, preview, *, context: str, context_from: str | None, mo
     grid = Table.grid(padding=(0, 2))
     grid.add_column(style="bold")
     grid.add_column()
-    grid.add_row("Origen", f"{ui.title(ref)} · {ui.tool_name(ref.tool)}")
-    grid.add_row("Destino", f"{target} · {ui.visible(preview.get('cwd') or ref.cwd)}")
+    grid.add_row(i18n.t("summary.source"), f"{ui.title(ref)} · {ui.tool_name(ref.tool)}")
+    grid.add_row(i18n.t("summary.target"), f"{target} · {ui.visible(preview.get('cwd') or ref.cwd)}")
     attachments = preview.get("attachments", 0)
-    history = f"{_context_label(context, context_from)} · {preview.get('message_count', 0)} mensajes"
-    grid.add_row("Historial", history + (f" · {attachments} adjuntos" if attachments else ""))
+    history = [
+        _context_label(context, context_from),
+        i18n.t("summary.messages", count=preview.get("message_count", 0)),
+    ]
+    if attachments:
+        history.append(i18n.t("summary.attachments", count=attachments))
+    grid.add_row(i18n.t("summary.history"), " · ".join(history))
     variants = _variants(preview)
     if variants:
         chosen = next(
             (info for info in variants if info.id == preview.get("variant")),
             next(info for info in variants if info.current),
         )
-        what = f" · «{ui._excerpt(chosen.prompt)}»" if chosen.prompt else ""
-        grid.add_row(
-            "Variante",
-            (f"La actual (de {len(variants)})" if chosen.current else f"Otra variante (de {len(variants)})")
-            + what,
-        )
+        what = " · " + i18n.quote(ui._excerpt(chosen.prompt)) if chosen.prompt else ""
+        which = "summary.variant.current" if chosen.current else "summary.variant.other"
+        grid.add_row(i18n.t("summary.variant"), i18n.t(which, total=len(variants)) + what)
     subagents = preview.get("subagents", 0)
     if subagents:
-        grid.add_row(
-            "Subagentes",
-            f"{subagents} · se llevan su encargo y su resultado; sus pasos quedan en el archivo",
-        )
+        grid.add_row(i18n.t("summary.subagents"), i18n.t("summary.subagents.detail", count=subagents))
     grid.add_row(
-        "Formato",
-        "Conversación nativa, verificada al terminar"
-        if mode == "native"
-        else "Traspaso manual: copiarás un mensaje en una conversación nueva",
+        i18n.t("summary.format"),
+        i18n.t("summary.format.native" if mode == "native" else "summary.format.handoff"),
     )
     preserved, adapted, archived, missing = (
         len(fidelity.get(key, [])) for key in ("preserved", "adapted", "archive_only", "missing")
     )
-    parts = [f"{preserved} conservados", f"{adapted} adaptados", f"{archived} solo en el archivo"]
+    parts = [
+        i18n.t("transfer.fidelity.preserved", count=preserved),
+        i18n.t("transfer.fidelity.adapted", count=adapted),
+        i18n.t("transfer.fidelity.archive_only", count=archived),
+    ]
     if missing:
-        parts.append(f"{missing} ausentes")
-    grid.add_row("Fidelidad", " · ".join(parts))
+        parts.append(i18n.t("transfer.fidelity.missing", count=missing))
+    grid.add_row(i18n.t("cli.label.fidelity"), " · ".join(parts))
     _out().print()
     _out().print(grid)
     if adapted or archived:
-        _note(
-            "Lo adaptado (por ejemplo, herramientas) pasa a texto; el archivo portable guarda el original completo.",
-            "dim",
-        )
+        _note(i18n.t("summary.adapted_note"), "dim")
     if "source_activity_unknown" in fidelity.get("warnings", []):
-        _note("No se sabe si la conversación sigue abierta; la copia detectará cambios mientras lee.", "dim")
+        _note(i18n.t("summary.activity_unknown_note"), "dim")
 
 
 def _preview(bridge, ref, conversation, target_profile, state) -> Any:
@@ -704,7 +717,7 @@ def _preview(bridge, ref, conversation, target_profile, state) -> Any:
     name = ui.tool_name(target_profile.tool)
     while True:
         try:
-            with _status("Preparando la vista previa…"):
+            with _status(i18n.t("preview.preparing")):
                 preview = bridge.preview(
                     ref.key,
                     target_profile.id,
@@ -720,25 +733,19 @@ def _preview(bridge, ref, conversation, target_profile, state) -> Any:
                 raise
             folder = state["cwd"] or conversation.source.cwd
             _note(
-                f"La carpeta «{ui.visible(folder)}» no existe en este equipo."
+                i18n.t("preview.folder_missing", folder=ui.visible(folder))
                 if folder and exc.code == "cwd_missing"
-                else "Esta conversación no registra su carpeta de trabajo.",
+                else i18n.t("preview.folder_unknown"),
             )
-            state["cwd"] = _ask_folder(f"Carpeta de trabajo para {name} (vacío para volver): ", folder or "")
+            state["cwd"] = _ask_folder(i18n.t("preview.folder_prompt", name=name) + " ", folder or "")
             if state["cwd"] is None:
                 return BACK
             continue
         if state["mode"] == "native" and preview.get("native_available") is False:
-            reason = ui.visible(preview.get("capability", {}).get("reason", "versión no verificada"))
+            reason = preview.get("capability", {}).get("reason") or "capability.unverified_version"
             answer = _ask(
-                f"{name} no admite aquí una conversión nativa: {reason}",
-                [
-                    (
-                        "handoff",
-                        "Preparar un traspaso manual (copiarás un mensaje en una conversación nueva)",
-                    ),
-                    (BACK, "Volver"),
-                ],
+                i18n.t("preview.native_unavailable", name=name, reason=ui.visible(i18n.text(reason))),
+                [("handoff", i18n.t("preview.prepare_handoff")), (BACK, i18n.t("menu.back"))],
             )
             if answer is BACK:
                 return BACK
@@ -762,15 +769,15 @@ def _sync_name(bridge, ref) -> Any:
 
     def problem(name: str) -> str | None:
         if len(name) > MAX_LINK_NAME or any(ord(character) < 32 for character in name):
-            return f"El nombre necesita como máximo {MAX_LINK_NAME} caracteres visibles."
+            return i18n.t("sync_name.too_long", limit=MAX_LINK_NAME)
         if name.casefold() in taken:
-            return "Ya hay una conversación sincronizada con ese nombre; elige otro."
+            return i18n.t("sync_name.taken")
         return None
 
     title = " ".join(ref.title.split())
     default = title if title and problem(title) is None else ""
     while True:
-        answer = _ask_text("Nombre de la conversación sincronizada (vacío usa su ID; Esc vuelve): ", default)
+        answer = _ask_text(i18n.t("sync_name.prompt") + " ", default)
         if answer is None:
             return BACK
         if not answer:
@@ -788,12 +795,12 @@ def _convert(bridge, ref, profiles) -> Any:
     targets = [profile for profile in profiles if profile.enabled and profile.id != ref.profile_id]
     _note(f"› {ui.title(ref)}  ·  {_session_detail(ref, folder=True)}", "bold")
     if not targets:
-        _note("No hay otro asistente configurado. Añade uno con `sessionbridge profile add`.")
+        _note(i18n.t("convert.no_targets"))
         return BACK
     target_id = _ask(
-        "¿Dónde quieres continuarla?",
+        i18n.t("convert.where"),
         [(profile.id, ui.profile_label(profile, profiles)) for profile in targets]
-        + [(BACK, "Volver a la búsqueda")],
+        + [(BACK, i18n.t("menu.back_to_search"))],
     )
     if target_id is BACK:
         return BACK
@@ -809,21 +816,21 @@ def _convert(bridge, ref, profiles) -> Any:
     }
     if ref.active is True:
         answer = _ask(
-            "La conversación está abierta ahora mismo.",
-            [(True, "Copiar su estado actual (instantánea de solo lectura)"), (BACK, "Volver")],
+            i18n.t("convert.open_now"),
+            [(True, i18n.t("convert.snapshot")), (BACK, i18n.t("menu.back"))],
         )
         if answer is BACK:
             return BACK
         state["snapshot"] = True
-    with _status("Leyendo la conversación…"):
+    with _status(i18n.t("convert.reading")):
         conversation = bridge.show(ref.key, snapshot=state["snapshot"])
     if conversation.context_ambiguous:
         answer = _ask(
-            "No se puede saber con certeza dónde empieza el contexto actual.",
+            i18n.t("convert.ambiguous"),
             [
-                ("all", "Llevar el historial completo"),
-                ("pick", "Elegir el mensaje desde el que empezar"),
-                (BACK, "Volver"),
+                ("all", i18n.t("menu.take_all")),
+                ("pick", i18n.t("menu.pick_start")),
+                (BACK, i18n.t("menu.back")),
             ],
         )
         if answer is BACK:
@@ -847,26 +854,20 @@ def _convert(bridge, ref, profiles) -> Any:
             context_from=state["context_from"],
             mode=state["mode"],
         )
-        options: list[tuple[Any, str]] = [("convert", "Convertir")]
+        options: list[tuple[Any, str]] = [("convert", i18n.t("menu.convert"))]
         variants = _variants(preview)
         syncable = state["mode"] == "native" and windows.get(ref.profile_id) and windows.get(target_id)
         if syncable and state["variant"] is None:
-            options.append(("sync", "Convertir y mantenerla sincronizada (solo su historial)"))
+            options.append(("sync", i18n.t("menu.convert_sync.detail", option=i18n.t("menu.convert_sync"))))
         elif syncable:
-            _note(f"La sincronización sigue siempre la variante actual de {ui.tool_name(ref.tool)}.", "dim")
+            _note(i18n.t("convert.sync_follows_current", tool=ui.tool_name(ref.tool)), "dim")
         if variants and not conversation.context_ambiguous:
-            options.append(("variant", f"Elegir otra variante ({len(variants)})"))
+            options.append(("variant", i18n.t("menu.other_variant", count=len(variants))))
         if not conversation.context_ambiguous:
-            options.append(
-                (
-                    "toggle",
-                    "Llevar el historial completo"
-                    if state["context"] == "current"
-                    else "Llevar solo el contexto actual",
-                )
-            )
-        options.append((BACK, "Volver a la búsqueda"))
-        action = _ask("¿Qué quieres hacer?", options)
+            toggle = "menu.take_all" if state["context"] == "current" else "menu.take_current"
+            options.append(("toggle", i18n.t(toggle)))
+        options.append((BACK, i18n.t("menu.back_to_search")))
+        action = _ask(i18n.t("convert.what_next"), options)
         if action is BACK:
             return BACK
         if action == "toggle":
@@ -883,7 +884,7 @@ def _convert(bridge, ref, profiles) -> Any:
                 continue
         break
     options = {key: state[key] for key in ("cwd", "context", "context_from", "snapshot", "mode", "variant")}
-    with _status("Convirtiendo y verificando…"):
+    with _status(i18n.t("convert.converting")):
         transfer = bridge.convert(ref.key, target_id, **options)
     _out().print()
     _emit(transfer)
@@ -895,7 +896,10 @@ def _convert(bridge, ref, profiles) -> Any:
         linked["worker"] = _ensure_worker(bridge.data_dir)
         _emit(linked)
     if state["mode"] == "native":
-        answer = _ask(f"¿Abrir ahora en {target}?", [("open", f"Abrir en {target}"), ("done", "Terminar")])
+        answer = _ask(
+            i18n.t("convert.open_question", target=target),
+            [("open", i18n.t("convert.open_in", target=target)), ("done", i18n.t("menu.finish"))],
+        )
         if answer == "open":
             _resume(bridge, transfer.id)
     return None
@@ -908,28 +912,29 @@ def _convert(bridge, ref, profiles) -> Any:
 def _open_link(bridge, service, link, profiles) -> Any:
     from .sync_cli import _ensure_worker
 
-    _note(f"● {ui.visible(link.get('name') or link['id'])}  ·  Sincronizada · {ui.link_state(link)}", "bold")
+    name = ui.visible(link.get("name") or link["id"])
+    _note(f"● {name}  ·  {i18n.t('home.synced')} · {ui.link_state(link)}", "bold")
     if link["paused"]:
         answer = _ask(
-            "El seguimiento de esta conversación está en pausa.",
-            [("resume", "Reanudar el seguimiento"), (BACK, "Volver")],
+            i18n.t("open.paused"),
+            [("resume", i18n.t("open.resume_tracking")), (BACK, i18n.t("menu.back"))],
         )
         if answer is BACK:
             return BACK
         service.unpause(link["id"])
     try:
-        with _status("Comprobando los últimos turnos…"):
+        with _status(i18n.t("open.checking")):
             service.poll(link["id"], force=True)
             link = service.status(link["id"])
     except BridgeError as exc:
         if exc.code not in {"sync_busy", "sync_store_invalid"}:
             raise
-        _note("El seguimiento está guardando un turno ahora mismo; vuelve a intentarlo en unos segundos.")
+        _note(i18n.t("open.busy"))
         return BACK
     branch = None
     if link["state"] in {"conflict", "waiting", "error"}:
         if not link["heads"]:
-            _note("Aún no hay un turno terminado que abrir. El seguimiento continúa en segundo plano.")
+            _note(i18n.t("open.no_turn_yet"))
             _ensure_worker(bridge.data_dir)
             return None
         branch = _pick_continuation(service, link)
@@ -937,8 +942,9 @@ def _open_link(bridge, service, link, profiles) -> Any:
             return BACK
     targets = [profile for profile in profiles if profile.enabled and profile.environment == "windows"]
     target = _ask(
-        "¿Con qué asistente quieres abrirla?",
-        [(profile.id, ui.profile_label(profile, targets)) for profile in targets] + [(BACK, "Volver")],
+        i18n.t("open.which_assistant"),
+        [(profile.id, ui.profile_label(profile, targets)) for profile in targets]
+        + [(BACK, i18n.t("menu.back"))],
     )
     if target is BACK:
         return BACK
@@ -952,8 +958,8 @@ def _open_link(bridge, service, link, profiles) -> Any:
         except BridgeError as exc:
             if exc.code not in {"cwd_missing", "cwd_required"}:
                 raise
-            _note("La carpeta de trabajo de esta conversación no existe en este equipo.")
-            cwd = _ask_folder("Carpeta de trabajo existente (vacío para volver): ")
+            _note(i18n.t("open.folder_missing"))
+            cwd = _ask_folder(i18n.t("open.folder_prompt") + " ")
             if cwd is None:
                 return BACK
 
@@ -967,16 +973,15 @@ def _pick_continuation(service, link) -> Any:
         detail = " · ".join(
             part
             for part in (
-                "Desde " + ui.head_origin(head, link),
+                i18n.t("continuation.from", origin=ui.head_origin(head, link)),
                 ui.relative_time(head.get("created_at")),
-                ui.REVISION_REASONS.get(head.get("reason"), ""),
+                ui.revision_reason(head.get("reason")),
             )
             if part
         )
         return _ask(
-            "El origen tiene cambios aún sin comprobar. "
-            "¿Abrir el último turno terminado? Los cambios posteriores no se incluirán.",
-            [(head["id"], "Abrir el último turno terminado · " + detail), (BACK, "Volver")],
+            i18n.t("continuation.pending"),
+            [(head["id"], i18n.t("continuation.open_last") + " · " + detail), (BACK, i18n.t("menu.back"))],
         )
     previews = service.head_previews(link["id"])
     options = []
@@ -985,15 +990,11 @@ def _pick_continuation(service, link) -> Any:
         parts = (
             ui.capitalized(ui.head_origin(head, link)),
             ui.relative_time(head.get("created_at")),
-            f"«{preview}»" if preview else "",
+            i18n.quote(preview) if preview else "",
         )
         options.append((head["id"], " · ".join(part for part in parts if part)))
-    others = "La otra se conserva." if len(heads) == 2 else "Las demás se conservan."
-    chosen = _ask(
-        f"Seguiste la conversación en {'dos' if len(heads) == 2 else 'varios'} sitios. "
-        f"¿Con cuál continúas? {others}",
-        options + [(BACK, "Volver")],
-    )
+    question = "continuation.question_two" if len(heads) == 2 else "continuation.question_many"
+    chosen = _ask(i18n.t(question), options + [(BACK, i18n.t("menu.back"))])
     if chosen is not BACK and link["state"] == "conflict":
         service.select(link["id"], chosen)
     return chosen
@@ -1002,29 +1003,32 @@ def _pick_continuation(service, link) -> Any:
 def _opening_note(plan, link) -> str:
     tool = ui.tool_name(plan["tool"])
     if plan["reuse"]:
-        return f"Se abrirá tu sesión de {tool}, ya al día."
+        return i18n.t("opening.reuse", tool=tool)
     source = ui.endpoint_tool(link, ui._endpoint(link, plan["source_key"]), plan["source_key"])
-    latest = "con lo último" if source == tool else f"con lo último de {source}"
-    note = f"Se abrirá una sesión nueva de {tool} {latest}."
+    note = (
+        i18n.t("opening.new", tool=tool)
+        if source == tool
+        else i18n.t("opening.new_from", tool=tool, source=source)
+    )
     if any(
         endpoint.get("profile_id") == plan["profile_id"] and endpoint.get("enabled", True)
         for endpoint in link.get("endpoints") or []
     ):
-        note += " La anterior queda como estaba: si escribes en ella, se creará otra continuación."
+        note += " " + i18n.t("opening.earlier_kept")
     return note
 
 
 def prompt_profile(values: dict[str, Any]) -> dict[str, Any]:
     """Complete a profile from explicit terminal answers."""
-    for field_name, label in (("id", "Identificador"), ("tool", "Herramienta"), ("home", "Carpeta de datos")):
+    for field_name in ("id", "tool", "home"):
         if not values.get(field_name):
-            values[field_name] = prompt(f"{label}: ").strip()
+            values[field_name] = prompt(i18n.t(f"profile_prompt.{field_name}") + ": ").strip()
     if not values.get("tool"):
-        raise BridgeError("missing_required_arguments", "Indica la herramienta del perfil.")
+        raise BridgeError("missing_required_arguments", "error.missing_required_arguments.tool")
     if values["tool"] not in {"claude", "opencode", "codex"}:
-        raise BridgeError("invalid_tool", "La herramienta debe ser claude, opencode o codex.")
+        raise BridgeError("invalid_tool")
     if values.get("environment") == "wsl" and not values.get("distro"):
-        values["distro"] = prompt("Distribución WSL: ").strip()
+        values["distro"] = prompt(i18n.t("profile_prompt.distro") + ": ").strip()
     if values.get("environment") == "wsl" and not values.get("helper"):
-        values["helper"] = prompt("Python del helper en Linux: ").strip()
+        values["helper"] = prompt(i18n.t("profile_prompt.helper") + ": ").strip()
     return values
