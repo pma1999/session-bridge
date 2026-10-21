@@ -2,7 +2,7 @@
 
 This file records notable user-facing changes. Version numbers refer to the project package.
 
-## Unreleased
+## 0.7.1
 
 - Errors from an older WSL helper whose text includes a value (such as OpenCode's message limit) now read in the language in use too. They are recognised only when the error's own details rebuild the older text exactly; anything else is still shown as it came.
 
