@@ -260,8 +260,10 @@ def from_release(work: Path, python: str, old_zip: Path, new_zip: Path) -> None:
         status = worker(command, env)
         expect(status["healthy"] and status["generation"] != started["generation"], "the worker was restarted")
         line = command_line(status["pid"])
-        runtime_python = str(target / "session-bridge" / ".venv" / "Scripts" / "python.exe")
-        expect(os.path.normcase(line).startswith(os.path.normcase(runtime_python)),
+        # The program is what precedes " -m"; compared as resolved paths, since a temporary folder
+        # can appear in its short 8.3 form (RUNNER~1) on one side and in full on the other.
+        program = line.split(" -m ", 1)[0].strip().strip('"')
+        expect(same(program, target / "session-bridge" / ".venv" / "Scripts" / "python.exe"),
                f"the worker runs the new runtime ({line})")
         leftovers = list(commands.glob("sessionbridge.exe.old-*"))
         expect(len(leftovers) == 1, "the command in use was renamed aside, not overwritten")
