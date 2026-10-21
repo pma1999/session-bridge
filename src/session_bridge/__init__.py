@@ -3,7 +3,7 @@
 import os as _os
 import sys as _sys
 
-__version__ = "0.7.1"
+__version__ = "0.8.0"
 
 
 def _release_launcher() -> None:

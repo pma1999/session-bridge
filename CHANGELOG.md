@@ -2,7 +2,7 @@
 
 This file records notable user-facing changes. Version numbers refer to the project package.
 
-## Unreleased
+## 0.8.0
 
 - Session Bridge updates itself. Opening it with no command checks GitHub at most once a day, in the background, and offers a newer release: update now, not now (asks again tomorrow) or skip this version. Updating downloads the portable ZIP, checks it against the release's SHA-256 checksums, installs it with that release's own `install.ps1` into a folder of its own, restarts the synchronization worker on it and opens the new version. A failure leaves the version in use working.
 - An installation made from a Git clone of this repository moves forward to the release tag with Git, only when the clone is on `main`, clean and without commits of its own; otherwise the reason is shown and the clone is left alone. Other installations are told about new versions with a link.
