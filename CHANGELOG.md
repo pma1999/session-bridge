@@ -2,6 +2,10 @@
 
 This file records notable user-facing changes. Version numbers refer to the project package.
 
+## Unreleased
+
+- Errors from an older WSL helper whose text includes a value (such as OpenCode's message limit) now read in the language in use too. They are recognised only when the error's own details rebuild the older text exactly; anything else is still shown as it came.
+
 ## 0.7.0
 
 - Session Bridge now speaks English as well as Spanish: the interactive search and menus, every message and error, warnings, dates, plurals and `--help`, including the sections and options Typer adds itself. Before, everything was in Spanish and `--help` mixed Spanish descriptions with English headings.

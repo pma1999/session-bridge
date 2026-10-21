@@ -55,7 +55,9 @@ def test_errors_carry_no_inline_text():
     inline = [
         f"{path.name}:{node.lineno}"
         for path, node in _error_calls()
-        if len(node.args) > 1 and isinstance(node.args[1], ast.Constant) and not i18n.is_key(node.args[1].value)
+        if len(node.args) > 1
+        and isinstance(node.args[1], ast.Constant)
+        and not i18n.is_key(node.args[1].value)
     ]
     assert not inline
 
@@ -103,7 +105,9 @@ def test_plural_texts_have_every_form_their_language_uses(lang):
     catalog = CATALOGS[lang]
     forms = {catalog.plural(n) for n in range(0, 200)}
     incomplete = [
-        key for key, message in catalog.MESSAGES.items() if isinstance(message, dict) and set(message) != forms
+        key
+        for key, message in catalog.MESSAGES.items()
+        if isinstance(message, dict) and set(message) != forms
     ]
     assert incomplete == []
 
@@ -284,7 +288,11 @@ def test_no_text_people_read_is_written_outside_the_catalogs():
 
 def test_the_scan_sees_text_written_inline():
     tree = ast.parse('_note(f"Hola {name}")\nprint("ok " + x)\n_note(i18n.t("menu.back"), "dim")')
-    calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call) and getattr(node.func, "id", "") in SINKS]
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and getattr(node.func, "id", "") in SINKS
+    ]
     shown = [c.value for call in calls for arg in call.args[:1] for c in _shown(arg)]
     assert [value for value in shown if _is_prose(value)] == ["Hola ", "ok "]
 
@@ -339,7 +347,9 @@ def test_posix_systems_are_read_as_posix_reads_them(no_preference, variables, ex
     assert i18n._system_language() == expected
 
 
-@pytest.mark.parametrize(("lcid", "expected"), [(0x0C0A, "es"), (0x080A, "es"), (0x0409, "en"), (0x040C, None)])
+@pytest.mark.parametrize(
+    ("lcid", "expected"), [(0x0C0A, "es"), (0x080A, "es"), (0x0409, "en"), (0x040C, None)]
+)
 def test_windows_is_read_from_its_display_language(no_preference, lcid, expected):
     import ctypes
     from types import SimpleNamespace
@@ -467,7 +477,11 @@ def test_every_help_page_comes_from_the_catalog(pseudo, path):
     command = dict((tuple(p), c) for p, c in _commands())[tuple(path)]
     result = CliRunner().invoke(app, [*path, "--help"], env={"COLUMNS": "200"}, prog_name="sessionbridge")
     assert result.exit_code == 0, result.output
-    allowed = _names(command) | set(re.findall(r"[^\W\d_]+", " ".join(path))) | {"sessionbridge", "help", "str", "int", "float", "path", "file", "bool"}  # type metavars
+    allowed = (
+        _names(command)
+        | set(re.findall(r"[^\W\d_]+", " ".join(path)))
+        | {"sessionbridge", "help", "str", "int", "float", "path", "file", "bool"}
+    )  # type metavars
     stray = set(re.findall(r"[^\W\d_]{2,}", pseudo(result.output))) - allowed
     assert stray == set(), result.output
 
@@ -482,7 +496,12 @@ def test_every_help_page_comes_from_the_catalog(pseudo, path):
 def test_the_installed_entry_point_writes_its_help_in_one_language(tmp_path, lang, own, foreign):
     import subprocess
 
-    env = {**os.environ, "SESSIONBRIDGE_HOME": str(tmp_path), "PYTHONPATH": str(ROOT / "src"), "COLUMNS": "120"}
+    env = {
+        **os.environ,
+        "SESSIONBRIDGE_HOME": str(tmp_path),
+        "PYTHONPATH": str(ROOT / "src"),
+        "COLUMNS": "120",
+    }
     for args in (["--help"], ["convert", "--help"], ["sync", "--help"]):
         result = subprocess.run(
             [sys.executable, "-c", "from session_bridge.cli import main; main()", "--lang", lang, *args],
@@ -550,3 +569,43 @@ def test_an_older_record_with_a_warning_sentence_reads_in_the_language_in_use(la
     assert ui.warning_text(old) == i18n.t("warning.archive_only_present")
     assert ui.warning_text("source_truncated:3") == i18n.t("warning.source_truncated", detail="3")
     assert (ui.value_text(True), ui.value_text(False), ui.value_text(None)) == ("yes", "no", "—")
+
+
+@pytest.mark.parametrize("row", GOLDEN, ids=lambda row: row["key"])
+def test_every_text_an_older_version_sent_is_recognised_with_the_details_it_sent(row):
+    # An older helper sent this exact Spanish text, with the details of its error.
+    params = {"max_messages": 9362, "message_count": 10000} if "max_messages" in row["details"] else {}
+    found = i18n.recognise(row["text"], params)
+    assert found is not None
+    assert i18n.t(found, lang="es", **params) == row["text"]
+
+
+def test_a_text_with_values_is_recognised_only_when_the_details_rebuild_it_exactly(lang):
+    sent = i18n.t("error.native_limit.opencode_messages", lang="es", max_messages=9362)
+    lang("en")
+    error = BridgeError("native_limit", sent, max_messages=9362, message_count=10000)
+    assert error.key == "error.native_limit.opencode_messages"
+    assert error.message == i18n.t("error.native_limit.opencode_messages", max_messages=9362)
+    # Details that do not rebuild the text (another value, or none) leave it as it came.
+    for details in ({"max_messages": 500}, {}):
+        kept = BridgeError("native_limit", sent, **details)
+        assert kept.message == sent and kept.key == "error.native_limit"
+
+
+def test_an_older_wording_with_values_kept_in_a_catalog_is_recognised(monkeypatch):
+    spanish = i18n._catalog("es")
+    monkeypatch.setattr(
+        spanish,
+        "LEGACY",
+        {"error.native_limit.opencode_messages": "Antes: {max_messages} mensajes."},
+        raising=False,
+    )
+    i18n.register("es", spanish)  # clears the indexes built from the catalogs
+    try:
+        assert (
+            i18n.recognise("Antes: 9362 mensajes.", {"max_messages": 9362})
+            == "error.native_limit.opencode_messages"
+        )
+    finally:
+        monkeypatch.undo()
+        i18n.register("es", spanish)

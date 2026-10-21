@@ -70,5 +70,4 @@ def pseudo():
         return re.sub(r"[\w:.-]*[\d_][\w:.-]*", " ", text)
 
     yield outside
-    i18n._loaded.pop(PSEUDO, None)
-    i18n._reverse = None
+    i18n.unregister(PSEUDO)

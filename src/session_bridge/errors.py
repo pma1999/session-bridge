@@ -22,7 +22,7 @@ class BridgeError(Exception):
         if not key:
             key = None
         elif not i18n.is_key(key):
-            found = i18n.recognise(key)
+            found = i18n.recognise(key, _params(details))
             if found is None:
                 self._text = key
             key = found

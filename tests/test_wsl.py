@@ -400,3 +400,19 @@ def test_the_helper_writes_in_the_language_it_is_sent_and_spanish_otherwise(monk
     error = json.loads(capsys.readouterr().out)["error"]
     assert error["key"] == "error.unsupported_helper_operation"
     assert error["message"] == wsl.i18n.t("error.unsupported_helper_operation", lang=expected)
+
+
+def test_an_older_helper_text_with_a_value_reads_in_english(monkeypatch, lang):
+    lang("en")
+    # 0.6 wrote the limit into the sentence and also sent it in the details.
+    sent = (
+        "Esta versión de OpenCode admite como máximo 9362 mensajes por importación nativa. "
+        "Conserva el archivo completo y selecciona handoff o un punto de contexto explícito; "
+        "no se ha truncado nada."
+    )
+    details = {"max_messages": 9362, "message_count": 12000}
+    _helper_answers(monkeypatch, {"ok": False, "error": {"code": "native_limit", "message": sent, "details": details}})
+    with pytest.raises(BridgeError) as raised:
+        wsl.call(WSL_PROFILE, "discover", {})
+    assert raised.value.key == "error.native_limit.opencode_messages"
+    assert raised.value.message.startswith("This OpenCode version accepts at most 9362 messages")

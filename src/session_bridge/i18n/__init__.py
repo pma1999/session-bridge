@@ -27,6 +27,7 @@ _ENVIRONMENT = "SESSIONBRIDGE_LANG"
 _loaded: dict[str, ModuleType] = {}
 _state: dict[str, Any] = {"lang": None, "source": None, "strict": False}
 _reverse: dict[str, str] | None = None
+_templates: list[tuple[str, str, str, frozenset[str]]] | None = None
 
 
 class MissingText(LookupError):
@@ -41,9 +42,17 @@ def _catalog(lang: str) -> ModuleType:
 
 def register(lang: str, module: ModuleType) -> None:
     """Make a catalog module available under ``lang`` (tests use it for a pseudo-language)."""
-    global _reverse
+    global _reverse, _templates
     _loaded[lang] = module
-    _reverse = None
+    _reverse = _templates = None
+
+
+def unregister(lang: str) -> None:
+    """Remove a catalog ``register`` added."""
+    global _reverse, _templates
+    if lang not in _CATALOGS:
+        _loaded.pop(lang, None)
+        _reverse = _templates = None
 
 
 def available() -> tuple[str, ...]:
@@ -234,23 +243,59 @@ def t(key: str, /, count: int | None = None, *, lang: str | None = None, **param
         return message
 
 
+def _languages() -> tuple[str, ...]:
+    return (*_CATALOGS, *(lang for lang in _loaded if lang not in _CATALOGS))
+
+
+def _entries(lang: str):
+    catalog = _catalog(lang)
+    return list(catalog.MESSAGES.items()) + list(getattr(catalog, "LEGACY", {}).items())
+
+
 def _reverse_index() -> dict[str, str]:
     """Every catalog text without parameters → its key; it recognises text another process rendered."""
     global _reverse
     if _reverse is None:
         _reverse = {}
-        for lang in (*_CATALOGS, *(lang for lang in _loaded if lang not in _CATALOGS)):
-            catalog = _catalog(lang)
-            entries = list(catalog.MESSAGES.items()) + list(getattr(catalog, "LEGACY", {}).items())
-            for key, message in entries:
+        for lang in _languages():
+            for key, message in _entries(lang):
                 if isinstance(message, str) and "{" not in message:
                     _reverse.setdefault(message, key)
     return _reverse
 
 
-def recognise(message: str) -> str | None:
-    """The key of a text some catalog (or an older wording) holds, if it has no parameters."""
-    return _reverse_index().get(message)
+def _parametrized() -> list[tuple[str, str, str, frozenset[str]]]:
+    """Every catalog text with parameters, as (key, language, text, the parameters it needs)."""
+    global _templates
+    if _templates is None:
+        _templates = []
+        for lang in _languages():
+            for key, message in _entries(lang):
+                if isinstance(message, str) and "{" in message:
+                    fields = frozenset(name for _, name, _, _ in string.Formatter().parse(message) if name)
+                    _templates.append((key, lang, message, fields))
+    return _templates
+
+
+def recognise(message: str, params: dict[str, Any] | None = None) -> str | None:
+    """The key of a text some catalog holds, as another process (an older helper) rendered it.
+
+    A text with parameters is recognised when the catalog's text, filled with ``params`` (the
+    error's details, which carry its values), is exactly ``message``. Nothing is guessed.
+    """
+    key = _reverse_index().get(message)
+    if key is not None or not params:
+        return key
+    for key, lang, template, fields in _parametrized():
+        if fields and fields <= params.keys():
+            # The stored text itself, an older wording included, not whatever the key reads now.
+            try:
+                rendered = _Formatter(lang).vformat(template, (), {name: params[name] for name in fields})
+            except (MissingText, ValueError, IndexError):
+                continue
+            if rendered == message:
+                return key
+    return None
 
 
 def text(value: str | None, /, **params) -> str:
@@ -259,7 +304,7 @@ def text(value: str | None, /, **params) -> str:
         return ""
     if is_key(value):
         return t(value, **params)
-    key = recognise(value)
+    key = recognise(value, params)
     return t(key, **params) if key else value
 
 
