@@ -401,6 +401,17 @@ def _global_flags_anywhere(args: list[str]) -> list[str]:
     return globals_ + rest
 
 
+def _show_version(value: bool) -> None:
+    if value:
+        from . import __version__
+
+        if "--json" in sys.argv[1:]:
+            _json_out(True, {"version": __version__})
+        else:
+            Console(markup=False, highlight=False).print(i18n.t("cli.version", version=__version__))
+        raise typer.Exit()
+
+
 def _use_language(value: str | None) -> str | None:
     # Eager, so `--lang en --help` already shows the help in English.
     if value:
@@ -422,6 +433,9 @@ def root(
         is_eager=True,
         callback=_use_language,
     ),
+    version: bool = typer.Option(
+        False, "--version", help="help.option.version", is_eager=True, callback=_show_version
+    ),
 ) -> None:
     """Continue conversations in another assistant; with no command, open the conversation search."""
     global _console_out, _console_err
@@ -437,9 +451,13 @@ def root(
             )
         if _state["json"]:
             raise BridgeError("interactive_json_unsupported")
+        from . import update_flow
         from .interactive import run_home
 
-        result = run_home(_bridge(), cwd=None if all_projects else str(Path.cwd()))
+        check = update_flow.start_check()
+        result = run_home(_bridge(), cwd=None if all_projects else str(Path.cwd()), update=check)
+        if isinstance(result, update_flow.Relaunch):
+            raise typer.Exit(update_flow.relaunch(result, sys.argv[1:]))
         if result is not None:
             _emit(result)
 
@@ -770,6 +788,86 @@ def language(
     _console_out.print(i18n.t("language.change", choices=i18n.join(others)), style="dim")
 
 
+UPDATE_SWITCH = "on|off"  # i18n: verbatim. The values the option takes, like the option names.
+
+
+@app.command(help="help.cmd.update")
+def update(
+    check: bool = typer.Option(False, "--check", help="help.update.check"),
+    yes: bool = typer.Option(False, "--yes", help="help.update.yes"),
+    startup_check: str | None = typer.Option(
+        None, "--startup-check", metavar=UPDATE_SWITCH, help="help.update.startup_check"
+    ),
+) -> None:
+    "Look for a newer published version now and install it."
+    from . import installation, update_flow, updates
+
+    if startup_check is not None:
+        value = startup_check.strip().casefold()
+        if value not in ("on", "off"):
+            raise BridgeError("invalid_arguments")
+        updates.set_startup_check(value == "on")
+        if _state["json"]:
+            _json_out(True, {"startup_check": value == "on"})
+        else:
+            _console_out.print(i18n.t("update.startup_check.on" if value == "on" else "update.startup_check.off"))
+        return
+    place = installation.detect()
+    with _spinner(i18n.t("update.checking")):
+        release = updates.refresh()
+    offer = updates.offer(place, release)
+    report = {
+        "current": str(updates.current()),
+        "latest": str(release.version) if release else None,
+        "available": offer is not None,
+        "installable": offer is not None and place.updatable,
+        "kind": place.kind,
+        "blocker": place.blocker,
+        "page_url": release.page_url if release else None,
+        "startup_check": updates.startup_check(),
+    }
+    if offer is None:
+        if _state["json"]:
+            _json_out(True, report)
+        else:
+            _console_out.print(i18n.t("update.up_to_date", version=str(updates.current())), style="bold")
+        return
+    if not _state["json"]:
+        _console_out.print(update_flow.describe(offer), style="bold")
+    if not place.updatable:
+        if _state["json"]:
+            _json_out(True, report)
+        else:
+            _console_out.print(update_flow.notice(offer), style="dim")
+        return
+    if check:
+        if _state["json"]:
+            _json_out(True, report)
+        else:
+            _console_out.print(i18n.t("update.how_to_install"), style="dim")
+        return
+    if not yes:
+        if _state["json"] or not (sys.stdin.isatty() and sys.stdout.isatty()):
+            raise BridgeError("update_needs_yes")
+        from .interactive import confirm
+
+        if not confirm(i18n.t("update.confirm", latest=str(offer.latest)), default=True):
+            return
+    command = update_flow.install(offer, quiet=_state["json"])
+    if _state["json"]:
+        _json_out(True, {**report, "updated": True, "command": str(command)})
+        return
+    _console_out.print(i18n.t("update.done", version=str(offer.latest)), style="bold")
+
+
+def _spinner(message: str):
+    import contextlib
+
+    if _state["json"] or not _console_err.is_terminal:
+        return contextlib.nullcontext()
+    return _console_err.status(message)
+
+
 def _error_line(error: BridgeError) -> str:
     return i18n.t("cli.error", code=_visible(error.code), message=_visible(error.message))
 
@@ -783,7 +881,10 @@ def main() -> None:
     try:
         # Before Typer runs, so help, errors and every text use the chosen language from the start.
         i18n.bootstrap(args)
-        app(args=args, standalone_mode=False)
+        # Without standalone mode, Click returns a typer.Exit code instead of raising it.
+        code = app(args=args, standalone_mode=False)
+        if isinstance(code, int) and code:
+            raise SystemExit(code)
     except (KeyboardInterrupt, EOFError):
         error = BridgeError("cancelled")
         if _state["json"] or "--json" in args:

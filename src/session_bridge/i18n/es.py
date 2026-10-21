@@ -772,4 +772,94 @@ MESSAGES: dict[str, str | dict[str, str]] = {
     "fmt.list": "{head} y {last}",
     "fmt.list_choice": "{head} o {last}",
     "error.invalid_language": "Ese idioma no está disponible.",
+    # Updates
+    "error.update_unavailable": (
+        "No se pudo consultar GitHub para buscar actualizaciones. Revisa la conexión y vuelve a intentarlo."
+    ),
+    "error.update_unavailable.rate_limited": (
+        "GitHub está limitando las peticiones desde esta red. Vuelve a intentarlo dentro de una hora."
+    ),
+    "error.update_unavailable.gone": "La versión nueva ya no aparece en GitHub. No se ha cambiado nada.",
+    "error.update_unavailable.git_fetch": "No se pudo traer {tag} de GitHub a tu copia de Git. No se ha cambiado nada.",
+    "error.update_unavailable.already_updated": (
+        "Session Bridge ya se actualizó desde otra ventana. Cierra esta y vuelve a abrir Session Bridge."
+    ),
+    "error.update_failed.system": (
+        "No se pudo completar la actualización por un error de archivos o del sistema; la versión que tienes sigue funcionando."
+    ),
+    "error.update_integrity": (
+        "La actualización descargada no ha superado la verificación, así que no se ha instalado nada."
+    ),
+    "error.update_integrity.missing": (
+        "A la release de GitHub le falta el paquete o sus sumas de comprobación, así que no se ha instalado nada."
+    ),
+    "error.update_integrity.checksum": (
+        "La descarga no coincide con las sumas SHA-256 de la release, así que no se ha instalado nada."
+    ),
+    "error.update_integrity.archive": (
+        "El paquete descargado contiene archivos inesperados o inseguros, así que no se ha instalado nada."
+    ),
+    "error.update_integrity.version": (
+        "El paquete descargado no es la versión {version}, así que no se ha instalado nada."
+    ),
+    "error.update_failed": (
+        "No se pudo instalar la actualización; la versión que tienes sigue funcionando. "
+        "El registro del instalador está en {log}."
+    ),
+    "error.update_failed.timeout": (
+        "El instalador tardó más de 15 minutos y se detuvo; la versión que tienes sigue funcionando. "
+        "Su registro está en {log}."
+    ),
+    "error.update_failed.powershell": (
+        "No se encontró Windows PowerShell, así que no se pudo instalar la actualización."
+    ),
+    "error.update_failed.git": "Git no pudo avanzar tu copia hasta {tag}. No se ha cambiado nada.",
+    "error.update_failed.folder": "{folder} ya existe y no lo creó Session Bridge, así que no se ha tocado.",
+    "error.update_busy": "Otra ventana de Session Bridge está instalando una actualización. Espera a que termine.",
+    "error.update_needs_yes": (
+        "Instalar una actualización necesita confirmación: ejecuta el comando en una terminal o añade --yes."
+    ),
+    "error.update_not_installable": "Esta instalación no puede actualizarse sola.",
+    "error.update_not_installable.kind": (
+        "Solo se actualizan solas las instalaciones hechas con scripts\\install.ps1 en Windows."
+    ),
+    "error.update_not_installable.branch": "Tu copia de Git no está en main siguiendo a origin/main.",
+    "error.update_not_installable.remote": "El origin de tu copia de Git no es github.com/pma1999/session-bridge.",
+    "error.update_not_installable.dirty": "Tu copia de Git tiene cambios sin confirmar.",
+    "error.update_not_installable.diverged": "Tu copia de Git tiene commits que no están en la release.",
+    "error.update_not_installable.git_missing": "No se encontró Git.",
+    "error.update_not_installable.git_failed": "Git no pudo leer tu copia.",
+    "help.cmd.update": "Busca una versión nueva de Session Bridge y la instala.",
+    "help.update.check": "Solo indica si hay una versión nueva publicada.",
+    "help.update.yes": "Instala sin preguntar.",
+    "help.update.startup_check": "Buscar actualizaciones al abrir Session Bridge: on (por defecto) u off.",
+    "help.option.version": "Muestra la versión instalada y termina.",
+    "cli.version": "Session Bridge {version}",
+    "update.checking": "Buscando actualizaciones en GitHub…",
+    "update.available": "Session Bridge {latest} ya está disponible (tienes {current}).",
+    "update.checkout_note": "Tu copia de Git en {folder} avanzará hasta {tag}.",
+    "update.notes": "Novedades: {url}",
+    "update.choice.now": "Actualizar ahora",
+    "update.choice.later": "Ahora no",
+    "update.choice.skip": "Omitir esta versión",
+    "update.step.download": "Descargando {version} ({size:bytes})…",
+    "update.step.git": "Trayendo {version} a tu copia de Git…",
+    "update.step.verify": "Verificando la descarga…",
+    "update.step.install": "Instalando; puede tardar un minuto…",
+    "update.done_opening": "Actualizado a {version}. Abriéndolo…",
+    "update.done": "Actualizado a {version}. Ejecuta sessionbridge para usarlo.",
+    "update.updated_from": "Actualizado desde {version}.",
+    "update.failed_continue": "Sigues con {version}.",
+    "update.up_to_date": "Session Bridge {version} está al día.",
+    "update.how_to_install": "Ejecuta sessionbridge update para instalarla.",
+    "update.confirm": "¿Instalar Session Bridge {latest} ahora?",
+    "update.notice.manual": "Session Bridge {latest} ya está disponible: {url}",
+    "update.notice.blocked": (
+        "Session Bridge {latest} ya está disponible. {reason} "
+        "Actualiza a mano con git pull y después scripts\\install.ps1."
+    ),
+    "update.startup_check.on": "Session Bridge buscará actualizaciones al abrirse.",
+    "update.startup_check.off": (
+        "Session Bridge no buscará actualizaciones al abrirse. Ejecuta sessionbridge update para comprobarlo."
+    ),
 }

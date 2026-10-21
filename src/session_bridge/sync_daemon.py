@@ -20,6 +20,7 @@ from pathlib import Path
 
 from . import i18n
 from .errors import BridgeError
+from .locks import ByteLock
 
 _START_TIMEOUT = 10.0
 _STOP_TIMEOUT = 10.0
@@ -47,55 +48,11 @@ def _root(data_dir: Path | None, *, create: bool = True) -> Path:
         raise BridgeError("sync_worker_io", "error.sync_worker_io.folder") from None
 
 
-class _Lock:
-    def __init__(self, path: Path):
-        self.path = path
-        self.stream = None
-
+class _Lock(ByteLock):
     def acquire(self) -> bool:
         if self.path.is_symlink():
             raise BridgeError("sync_worker_io", "error.sync_worker_io.lock_path")
-        stream = os.fdopen(os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600), "r+b", buffering=0)
-        try:
-            if os.fstat(stream.fileno()).st_size == 0:
-                stream.write(b"\0")
-            stream.seek(0)
-            if os.name == "nt":
-                import msvcrt
-
-                msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            stream.close()
-            return False
-        self.stream = stream
-        return True
-
-    def owner(self, generation: str) -> None:
-        self.stream.seek(1)
-        self.stream.write(generation.encode("ascii"))
-        self.stream.truncate()
-        os.fsync(self.stream.fileno())
-
-    def release(self) -> None:
-        if self.stream is None:
-            return
-        try:
-            self.stream.seek(0)
-            if os.name == "nt":
-                import msvcrt
-
-                msvcrt.locking(self.stream.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(self.stream.fileno(), fcntl.LOCK_UN)
-        finally:
-            self.stream.close()
-            self.stream = None
+        return super().acquire()
 
 
 def _read(path: Path) -> dict:

@@ -86,11 +86,11 @@ def test_download_is_https_fixed_url_bounded_and_exclusive(monkeypatch, tmp_path
 
     requested = []
 
-    def open_url(request, timeout):
+    def open_url(request, timeout, hosts):
         requested.append((request.full_url, timeout))
         return Response(payload)
 
-    monkeypatch.setattr(bootstrap.urllib.request, "urlopen", open_url)
+    monkeypatch.setattr(bootstrap.net, "_open", open_url)
     monkeypatch.setattr(bootstrap, "PIP_WHEEL_SHA256", hashlib.sha256(payload).hexdigest())
     path = bootstrap._pip_wheel(tmp_path / "cache")
     assert path.read_bytes() == payload

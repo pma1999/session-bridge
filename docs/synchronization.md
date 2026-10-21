@@ -156,7 +156,10 @@ The Windows installer checks an existing managed command before replacing files,
 managed worker cooperatively, installs and verifies the runtime, then starts a new generation only
 if the worker was running beforehand. Stop failure blocks code replacement. A failed update attempts
 to restart the installed runtime and reports failure; repair it before `sync start` if necessary.
-It does not change global environment variables, native client settings or WSL installations.
+When the installation being replaced lives in another folder (an update installs each release in
+a folder of its own), the worker is stopped through the runtime the installation receipt names and
+started again from the new one. It does not change global environment variables, native client
+settings or WSL installations.
 
 ## Recovery, export and backups
 

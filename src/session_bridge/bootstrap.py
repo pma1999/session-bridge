@@ -14,12 +14,11 @@ import re
 import shutil
 import subprocess
 import tempfile
-import urllib.error
-import urllib.request
 import venv
 from pathlib import Path
 from typing import Any
 
+from . import net
 from .errors import BridgeError
 
 PIP_VERSION = "26.2.1"
@@ -31,6 +30,8 @@ PIP_WHEEL_URL = (
 PIP_WHEEL_SHA256 = "71138adf1f4ca900cdb7d289c21b7494329f2332b6d85f0e1c42108c0384ed3e"
 PIP_WHEEL_SIZE = 1_816_632
 DOWNLOAD_TIMEOUT = 30
+# Downloads come from this host only, with no redirect elsewhere.
+_PYPI = net.Hosts(frozenset({"files.pythonhosted.org"}))
 _DISTRO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$")
 _PIP_ENTRY = (
     "import runpy,sys; sys.path.insert(0,sys.argv.pop(1)); runpy.run_module('pip',run_name='__main__')"
@@ -69,33 +70,21 @@ def _pip_wheel(cache_dir: Path) -> Path:
                 raise _fail("pip_cache")
             _verify_pip(destination)
             return destination
-        if not PIP_WHEEL_URL.startswith("https://files.pythonhosted.org/"):
-            raise _fail("pip_download")
-        request = urllib.request.Request(PIP_WHEEL_URL, headers={"User-Agent": "session-bridge-bootstrap"})
         temp_path: Path | None = None
         try:
-            with urllib.request.urlopen(request, timeout=DOWNLOAD_TIMEOUT) as response:
-                final_url = getattr(response, "url", PIP_WHEEL_URL)
-                if not final_url.startswith("https://files.pythonhosted.org/"):
-                    raise _fail("pip_download")
-                header_size = response.headers.get("Content-Length")
-                if header_size is not None and int(header_size) != PIP_WHEEL_SIZE:
-                    raise _fail("pip_download")
-                fd, raw_temp = tempfile.mkstemp(prefix="pip-bootstrap-", suffix=".tmp", dir=cache_dir)
-                temp_path = Path(raw_temp)
-                digest = hashlib.sha256()
-                size = 0
-                with os.fdopen(fd, "wb") as output:
-                    while block := response.read(64 * 1024):
-                        size += len(block)
-                        if size > PIP_WHEEL_SIZE:
-                            raise _fail("pip_download")
-                        digest.update(block)
-                        output.write(block)
-                    output.flush()
-                    os.fsync(output.fileno())
-                if size != PIP_WHEEL_SIZE or digest.hexdigest() != PIP_WHEEL_SHA256:
-                    raise _fail("pip_download")
+            try:
+                temp_path = net.download(
+                    PIP_WHEEL_URL,
+                    cache_dir,
+                    hosts=_PYPI,
+                    max_bytes=PIP_WHEEL_SIZE,
+                    size=PIP_WHEEL_SIZE,
+                    sha256=PIP_WHEEL_SHA256,
+                    timeout=DOWNLOAD_TIMEOUT,
+                    user_agent="session-bridge-bootstrap",
+                )
+            except net.NetError:
+                raise _fail("pip_download") from None
             try:
                 os.link(temp_path, destination)
             except FileExistsError:
@@ -125,7 +114,7 @@ def _pip_wheel(cache_dir: Path) -> Path:
                     pass
     except BridgeError:
         raise
-    except (OSError, ValueError, urllib.error.URLError, TimeoutError):
+    except (OSError, ValueError):
         raise _fail("pip_download") from None
 
 

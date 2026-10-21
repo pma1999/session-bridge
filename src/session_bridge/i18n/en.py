@@ -772,4 +772,80 @@ MESSAGES: dict[str, str | dict[str, str]] = {
     "fmt.list": "{head} and {last}",
     "fmt.list_choice": "{head} or {last}",
     "error.invalid_language": "That language is not available.",
+    # Updates
+    "error.update_unavailable": "Could not check GitHub for updates. Check the connection and try again.",
+    "error.update_unavailable.rate_limited": "GitHub is limiting requests from this network. Try again in an hour.",
+    "error.update_unavailable.gone": "The newer version is no longer listed on GitHub. Nothing was changed.",
+    "error.update_unavailable.git_fetch": "Could not fetch {tag} from GitHub into your Git copy. Nothing was changed.",
+    "error.update_unavailable.already_updated": (
+        "Session Bridge was already updated from another window. Close this one and open Session Bridge again."
+    ),
+    "error.update_failed.system": (
+        "The update could not be completed because of a file or system error; the version you have still works."
+    ),
+    "error.update_integrity": "The downloaded update did not pass verification, so nothing was installed.",
+    "error.update_integrity.missing": (
+        "The release on GitHub lacks its package or its checksums, so nothing was installed."
+    ),
+    "error.update_integrity.checksum": (
+        "The download does not match the release's SHA-256 checksums, so nothing was installed."
+    ),
+    "error.update_integrity.archive": (
+        "The downloaded package holds unexpected or unsafe files, so nothing was installed."
+    ),
+    "error.update_integrity.version": "The downloaded package is not version {version}, so nothing was installed.",
+    "error.update_failed": (
+        "The update could not be installed; the version you have still works. The installer's log is {log}."
+    ),
+    "error.update_failed.timeout": (
+        "The installer took more than 15 minutes and was stopped; the version you have still works. "
+        "Its log is {log}."
+    ),
+    "error.update_failed.powershell": "Windows PowerShell was not found, so the update could not be installed.",
+    "error.update_failed.git": "Git could not move your copy forward to {tag}. Nothing was changed.",
+    "error.update_failed.folder": "{folder} already exists and Session Bridge did not create it, so it was left alone.",
+    "error.update_busy": "Another Session Bridge window is installing an update. Wait for it to finish.",
+    "error.update_needs_yes": "Installing an update needs confirmation: run the command in a terminal, or add --yes.",
+    "error.update_not_installable": "This installation cannot update itself.",
+    "error.update_not_installable.kind": (
+        "Only installations made with scripts\\install.ps1 on Windows can update themselves."
+    ),
+    "error.update_not_installable.branch": "Your Git copy is not on main following origin/main.",
+    "error.update_not_installable.remote": "Your Git copy's origin is not github.com/pma1999/session-bridge.",
+    "error.update_not_installable.dirty": "Your Git copy has uncommitted changes.",
+    "error.update_not_installable.diverged": "Your Git copy has commits that are not in the release.",
+    "error.update_not_installable.git_missing": "Git was not found.",
+    "error.update_not_installable.git_failed": "Git could not read your copy.",
+    "help.cmd.update": "Check for a newer version of Session Bridge and install it.",
+    "help.update.check": "Only say whether a newer version is published.",
+    "help.update.yes": "Install without asking.",
+    "help.update.startup_check": "Look for updates when Session Bridge starts: on (the default) or off.",
+    "help.option.version": "Show the installed version and exit.",
+    "cli.version": "Session Bridge {version}",
+    "update.checking": "Checking GitHub for updates…",
+    "update.available": "Session Bridge {latest} is available (you have {current}).",
+    "update.checkout_note": "Your Git copy in {folder} will move forward to {tag}.",
+    "update.notes": "What's new: {url}",
+    "update.choice.now": "Update now",
+    "update.choice.later": "Not now",
+    "update.choice.skip": "Skip this version",
+    "update.step.download": "Downloading {version} ({size:bytes})…",
+    "update.step.git": "Fetching {version} into your Git copy…",
+    "update.step.verify": "Verifying the download…",
+    "update.step.install": "Installing; this can take a minute…",
+    "update.done_opening": "Updated to {version}. Opening it…",
+    "update.done": "Updated to {version}. Run sessionbridge to use it.",
+    "update.updated_from": "Updated from {version}.",
+    "update.failed_continue": "Continuing with {version}.",
+    "update.up_to_date": "Session Bridge {version} is up to date.",
+    "update.how_to_install": "Run sessionbridge update to install it.",
+    "update.confirm": "Install Session Bridge {latest} now?",
+    "update.notice.manual": "Session Bridge {latest} is available: {url}",
+    "update.notice.blocked": (
+        "Session Bridge {latest} is available. {reason} Update by hand with git pull, then scripts\\install.ps1."
+    ),
+    "update.startup_check.on": "Session Bridge will look for updates when it starts.",
+    "update.startup_check.off": (
+        "Session Bridge will not look for updates when it starts. Run sessionbridge update to check."
+    ),
 }

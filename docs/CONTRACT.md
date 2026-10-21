@@ -107,3 +107,43 @@ Windows profiles() includes detected stopped distros as diagnostic only, not aut
 interpolation or agents installation. `wsl.status()` returns available distro name/running/version.
 CLI `profile add` and `wsl install/status` use these functions. Linux CLI can use local profiles
 in its own environment, with no wsl.exe requirement. Data home LOCALAPPDATA or XDG_DATA_HOME.
+
+## Updates (0.8.0)
+
+The updater always runs in the version being replaced, so what it relies on below is fixed: a
+release that breaks it cannot be installed by the versions already out. `tests/test_updater.py`
+pins these names.
+
+- Release lookup: `GET https://api.github.com/repos/pma1999/session-bridge/releases/latest`
+  (conditional with `If-None-Match`). Only a final `vX.Y.Z` tag whose page and assets live under
+  `https://github.com/pma1999/session-bridge/releases/` is considered. Requests start only at
+  `api.github.com` or `github.com` over HTTPS; a redirect may lead only to an HTTPS
+  `*.githubusercontent.com` host.
+- Release assets: `session-bridge-X.Y.Z-portable.zip`, whose members all lie under
+  `session-bridge/`, and `SHA256SUMS` with a `<sha256>  <name>` line for that ZIP. The ZIP must match
+  `SHA256SUMS`, and the API's `digest` of each asset when present. The ZIP's
+  `session-bridge/pyproject.toml` must declare `X.Y.Z`.
+- Handoff: `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File
+  <project>\scripts\install.ps1 -Python <base interpreter> -CommandDirectory <folder> [-Runtime <folder>]`,
+  output in `<data>\logs\update-X.Y.Z.log`. The receipt
+  `%LOCALAPPDATA%\SessionBridge\installation.json` (`project`, `runtime`, `command`, `sha256`)
+  decides which installation is in use: the update succeeded when it names the new folder, whatever
+  the exit code (a worker that fails to restart after the switch is only a warning, exit code 0).
+  A receipt without `runtime` means `<project>\.venv`. Before changing anything, the updater checks
+  under `update.lock` that the receipt still names the installation that offered the update; one
+  updated from another window meanwhile gets `already_updated` and nothing is touched. The installer
+  runs without a console, is not abandoned on Ctrl+C, and on its 15-minute timeout is stopped with
+  everything it started; a command left renamed aside is then put back.
+- Folders: release ZIPs go to `%LOCALAPPDATA%\SessionBridge\app\X.Y.Z`; Git clones get their new
+  runtime in `%LOCALAPPDATA%\SessionBridge\runtime\X.Y.Z`. Each carries `.sessionbridge-managed`;
+  only such folders are ever replaced or deleted, never the one the receipt names. Cleanup keeps
+  the one in use and the one before it, and a folder that cannot be renamed (another window runs
+  from it) is kept for a later start. A failed check waits an hour before the next automatic one.
+- Git clones: updated only on `main` following `origin/main` of this repository, with no
+  uncommitted changes and no commits of their own, by `git fetch` of the tag and
+  `git merge --ff-only vX.Y.Z`; a failed installation resets the clone to where it was.
+- State: `<data>\update.json` (last check, ETag, latest release, skipped version, postponement) and
+  the `update_check` setting in `<data>\settings.json`. `SESSIONBRIDGE_NO_UPDATE_CHECK=1` disables
+  the check at start. Only the start screen checks and asks; other commands never do.
+- Error codes: `update_unavailable`, `update_integrity`, `update_failed`, `update_busy`,
+  `update_not_installable`, `update_needs_yes`.

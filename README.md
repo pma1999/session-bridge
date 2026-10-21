@@ -26,7 +26,23 @@ sessionbridge --help
 sessionbridge doctor
 ```
 
-The installer creates a project-local virtual environment and installs the `sessionbridge` command in your user command directory. Keep the project folder in place. Close interactive Session Bridge windows before installing or upgrading: Windows can lock their executable. The installer stops and restarts its managed synchronization worker when needed. Python dependencies are pinned; initial installation needs network access. The installer does not install or upgrade coding clients and refuses to replace an unmanaged command. If it reports one after a manual copy or a lost installation record, check that `%USERPROFILE%\.local\bin\sessionbridge.exe` is yours, delete it, and run the installer again.
+The installer creates a project-local virtual environment and installs the `sessionbridge` command in your user command directory. Keep the project folder in place. From a release ZIP it installs the release's own wheel; from a clone it builds from the sources. A command that is running is renamed aside and replaced, and removed by a later installation. The installer stops and restarts its managed synchronization worker when needed. Python dependencies are pinned; initial installation needs network access. The installer does not install or upgrade coding clients and refuses to replace an unmanaged command. If it reports one after a manual copy or a lost installation record, check that `%USERPROFILE%\.local\bin\sessionbridge.exe` is yours, delete it, and run the installer again.
+
+### Updates
+
+When you open Session Bridge with no command, it checks GitHub for a newer release at most once a day, in the background while your conversations load. If one exists, it asks: **Update now**, **Not now** (asks again tomorrow; Esc does the same) or **Skip this version** (stays quiet until the next one). Updating downloads the release's portable ZIP, checks it against the release's SHA-256 checksums, installs it with that release's own `install.ps1` into a folder of its own under `%LOCALAPPDATA%\SessionBridge\app`, and opens the new version. If anything fails, the version you have keeps working and the error says where the installer's log is. The synchronization worker is restarted on the new version.
+
+An installation made from a Git clone updates with Git instead: it moves `main` forward to the release tag, only when the clone is on `main` following `origin/main` of this repository, has no uncommitted changes and no commits of its own. Otherwise Session Bridge says why and leaves the clone alone. Other installations (a wheel, Linux) are told about new versions with a link.
+
+```text
+sessionbridge update                     # check now and install
+sessionbridge update --check             # only report; add --json for scripts
+sessionbridge update --yes               # install without asking
+sessionbridge update --startup-check off # stop checking at start (SESSIONBRIDGE_NO_UPDATE_CHECK=1 also does)
+sessionbridge --version
+```
+
+Commands with arguments and `--json` never check for updates or ask. Updating from 0.7.x or earlier needs one manual installation of 0.8.0 or later, because the updater runs in the version being replaced. Checksums come from the same GitHub release as the files: they detect a corrupted or altered download, but they are not a publisher signature.
 
 Each GitHub release includes the portable ZIP, a wheel, and SHA-256 checksum files. Session Bridge is distributed through GitHub Releases; no PyPI release is published.
 

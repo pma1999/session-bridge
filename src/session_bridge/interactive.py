@@ -404,7 +404,9 @@ MENU_INDENT = 10
 def _ask(message: str, options: list[tuple[Any, str]], *, default: Any = None) -> Any:
     """Arrow-key menu; Esc goes back one step. Text is fitted to the terminal, never cut mid-word."""
     width = max(20, _columns() - 1)
-    message = "\n".join("\n".join(textwrap.wrap(line, width) or [""]) for line in message.split("\n"))
+    # Addresses and paths stay whole (a hyphen is not a break), so they can still be copied or clicked.
+    wrapped = (textwrap.wrap(line, width, break_on_hyphens=False, break_long_words=False) for line in message.split("\n"))
+    message = "\n".join("\n".join(lines or [""]) for lines in wrapped)
     options = [(value, _fit(label, width - MENU_INDENT)) for value, label in options]
     return choice(
         message=message,
@@ -555,13 +557,18 @@ def _group_label(group: str) -> str:
     return i18n.t(f"home.group.{group}") if group in (HERE, ELSEWHERE) else group
 
 
-def run_home(bridge: Any, *, cwd: str | None = None) -> Any:
-    """Find any conversation, then convert it or open its synchronized copy."""
+def run_home(bridge: Any, *, cwd: str | None = None, update: Any = None) -> Any:
+    """Find any conversation, then convert it or open its synchronized copy.
+
+    ``update`` is a running update check; when the user installs the update it offers, the
+    result is an ``update_flow.Relaunch`` for the caller to open the new version with.
+    """
     with _colour_session():
-        return _home(bridge, cwd)
+        return _home(bridge, cwd, update)
 
 
-def _home(bridge: Any, cwd: str | None) -> Any:
+def _home(bridge: Any, cwd: str | None, update: Any = None) -> Any:
+    from . import update_flow
     from .sync import SyncService
 
     notices = []
@@ -574,6 +581,10 @@ def _home(bridge: Any, cwd: str | None) -> Any:
             # Everything else stays usable while the synchronization store is busy or damaged.
             service, links = None, []
             notices.append(i18n.t("home.links_unavailable"))
+    # Conversations loaded while the update check ran; its answer is asked about before the search.
+    relaunch = update_flow.at_start(update, notices)
+    if relaunch is not None:
+        return relaunch
     profiles = list(bridge.profiles())
     choices = home_choices(sessions, links, cwd)
     heading = [

@@ -1,4 +1,7 @@
-"""Every test sees Spanish unless it asks for another language, and a missing text fails loudly."""
+"""Every test sees Spanish unless it asks for another language, and a missing text fails loudly.
+
+No test touches the user's data folder or checks GitHub for updates unless it says so.
+"""
 
 import os
 
@@ -6,8 +9,15 @@ import pytest
 
 # Set before any test module imports the CLI, so nothing depends on the machine's language.
 os.environ["SESSIONBRIDGE_LANG"] = "es"
+os.environ["SESSIONBRIDGE_NO_UPDATE_CHECK"] = "1"
 
 from session_bridge import i18n  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def isolated_data(monkeypatch, tmp_path_factory):
+    monkeypatch.setenv("SESSIONBRIDGE_HOME", str(tmp_path_factory.mktemp("sessionbridge-home")))
+    monkeypatch.setenv("SESSIONBRIDGE_NO_UPDATE_CHECK", "1")
 
 
 @pytest.fixture(autouse=True)

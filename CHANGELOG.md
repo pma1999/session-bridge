@@ -2,6 +2,14 @@
 
 This file records notable user-facing changes. Version numbers refer to the project package.
 
+## Unreleased
+
+- Session Bridge updates itself. Opening it with no command checks GitHub at most once a day, in the background, and offers a newer release: update now, not now (asks again tomorrow) or skip this version. Updating downloads the portable ZIP, checks it against the release's SHA-256 checksums, installs it with that release's own `install.ps1` into a folder of its own, restarts the synchronization worker on it and opens the new version. A failure leaves the version in use working.
+- An installation made from a Git clone of this repository moves forward to the release tag with Git, only when the clone is on `main`, clean and without commits of its own; otherwise the reason is shown and the clone is left alone. Other installations are told about new versions with a link.
+- New `sessionbridge update` command (`--check`, `--yes`, `--startup-check on|off`, `--json`) and `sessionbridge --version`. `SESSIONBRIDGE_NO_UPDATE_CHECK=1` turns the check off.
+- `install.ps1`: installs the release's wheel when run from a release ZIP (the bytes its checksums cover) and builds from source in a clone; stops the worker of the installation being replaced even when the new one is in another folder (before, a worker started from the old folder kept running old code); checks the new command before replacing the old one; replaces a command that is running by renaming it aside, and restores it if anything fails; takes an optional `-Runtime` folder, recorded in the installation receipt.
+- Updating from 0.7.x or earlier needs one manual installation, because the updater runs in the version being replaced.
+
 ## 0.7.1
 
 - Errors from an older WSL helper whose text includes a value (such as OpenCode's message limit) now read in the language in use too. They are recognised only when the error's own details rebuild the older text exactly; anything else is still shown as it came.

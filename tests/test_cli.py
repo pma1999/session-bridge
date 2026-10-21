@@ -108,7 +108,8 @@ def test_interactive_entrypoint_passes_launch_directory_and_explicit_global_scop
     monkeypatch.setattr("session_bridge.interactive.run_home", home)
     assert _run_main(monkeypatch, capsys, [])[0] == 0
     assert _run_main(monkeypatch, capsys, ["--all-projects"])[0] == 0
-    assert calls == [{"cwd": str(Path.cwd())}, {"cwd": None}]
+    # Tests turn the update check off (SESSIONBRIDGE_NO_UPDATE_CHECK), so none is passed on.
+    assert calls == [{"cwd": str(Path.cwd()), "update": None}, {"cwd": None, "update": None}]
 
 
 def test_json_global_flag_after_command_and_metadata_filters(monkeypatch, capsys):
