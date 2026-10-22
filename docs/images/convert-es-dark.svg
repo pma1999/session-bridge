@@ -1,0 +1,134 @@
+<svg class="rich-terminal" viewBox="0 0 1190 513.5999999999999" xmlns="http://www.w3.org/2000/svg">
+    <!-- Generated with Rich https://www.textualize.io -->
+    <style>
+
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Regular"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Regular.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Regular.woff") format("woff");
+        font-style: normal;
+        font-weight: 400;
+    }
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Bold"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Bold.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Bold.woff") format("woff");
+        font-style: bold;
+        font-weight: 700;
+    }
+
+    .convert-es-dark-matrix {
+        font-family: Fira Code, monospace;
+        font-size: 20px;
+        line-height: 24.4px;
+        font-variant-east-asian: full-width;
+    }
+
+    .convert-es-dark-title {
+        font-size: 18px;
+        font-weight: bold;
+        font-family: arial;
+    }
+
+    .convert-es-dark-r1 { fill: #e6edf3;font-weight: bold }
+.convert-es-dark-r2 { fill: #e6edf3 }
+.convert-es-dark-r3 { fill: #8b949e;font-weight: bold }
+.convert-es-dark-r4 { fill: #8b949e }
+.convert-es-dark-r5 { fill: #8f959b }
+    </style>
+
+    <defs>
+    <clipPath id="convert-es-dark-clip-terminal">
+      <rect x="0" y="0" width="1170.1999999999998" height="462.59999999999997" />
+    </clipPath>
+    <clipPath id="convert-es-dark-line-0">
+    <rect x="0" y="1.5" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="convert-es-dark-line-1">
+    <rect x="0" y="25.9" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="convert-es-dark-line-2">
+    <rect x="0" y="50.3" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="convert-es-dark-line-3">
+    <rect x="0" y="74.7" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="convert-es-dark-line-4">
+    <rect x="0" y="99.1" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="convert-es-dark-line-5">
+    <rect x="0" y="123.5" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="convert-es-dark-line-6">
+    <rect x="0" y="147.9" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="convert-es-dark-line-7">
+    <rect x="0" y="172.3" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="convert-es-dark-line-8">
+    <rect x="0" y="196.7" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="convert-es-dark-line-9">
+    <rect x="0" y="221.1" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="convert-es-dark-line-10">
+    <rect x="0" y="245.5" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="convert-es-dark-line-11">
+    <rect x="0" y="269.9" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="convert-es-dark-line-12">
+    <rect x="0" y="294.3" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="convert-es-dark-line-13">
+    <rect x="0" y="318.7" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="convert-es-dark-line-14">
+    <rect x="0" y="343.1" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="convert-es-dark-line-15">
+    <rect x="0" y="367.5" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="convert-es-dark-line-16">
+    <rect x="0" y="391.9" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="convert-es-dark-line-17">
+    <rect x="0" y="416.3" width="1171.2" height="24.65"/>
+            </clipPath>
+    </defs>
+
+    <rect fill="#0d1117" stroke="rgba(255,255,255,0.35)" stroke-width="1" x="1" y="1" width="1188" height="511.6" rx="8"/><text class="convert-es-dark-title" fill="#e6edf3" text-anchor="middle" x="594" y="27">sessionbridge</text>
+            <g transform="translate(26,22)">
+            <circle cx="0" cy="0" r="7" fill="#ff5f57"/>
+            <circle cx="22" cy="0" r="7" fill="#febc2e"/>
+            <circle cx="44" cy="0" r="7" fill="#28c840"/>
+            </g>
+
+    <g transform="translate(9, 41)" clip-path="url(#convert-es-dark-clip-terminal)">
+
+    <g class="convert-es-dark-matrix">
+    <text class="convert-es-dark-r1" x="0" y="20" textLength="951.6" clip-path="url(#convert-es-dark-line-0)">›&#160;Fix&#160;the&#160;flaky&#160;payment&#160;webhook&#160;test&#160;&#160;·&#160;&#160;Claude&#160;Code&#160;·&#160;hace&#160;12&#160;min&#160;·&#160;acme-shop</text><text class="convert-es-dark-r2" x="1171.2" y="20" textLength="12.2" clip-path="url(#convert-es-dark-line-0)">
+</text><text class="convert-es-dark-r2" x="0" y="44.4" textLength="341.6" clip-path="url(#convert-es-dark-line-1)">&#160;¿Dónde&#160;quieres&#160;continuarla?</text><text class="convert-es-dark-r2" x="1171.2" y="44.4" textLength="12.2" clip-path="url(#convert-es-dark-line-1)">
+</text><text class="convert-es-dark-r1" x="36.6" y="68.8" textLength="12.2" clip-path="url(#convert-es-dark-line-2)">›</text><text class="convert-es-dark-r3" x="61" y="68.8" textLength="48.8" clip-path="url(#convert-es-dark-line-2)">&#160;1.&#160;</text><text class="convert-es-dark-r1" x="109.8" y="68.8" textLength="61" clip-path="url(#convert-es-dark-line-2)">Codex</text><text class="convert-es-dark-r2" x="1171.2" y="68.8" textLength="12.2" clip-path="url(#convert-es-dark-line-2)">
+</text><text class="convert-es-dark-r4" x="61" y="93.2" textLength="48.8" clip-path="url(#convert-es-dark-line-3)">&#160;2.&#160;</text><text class="convert-es-dark-r2" x="109.8" y="93.2" textLength="97.6" clip-path="url(#convert-es-dark-line-3)">OpenCode</text><text class="convert-es-dark-r2" x="1171.2" y="93.2" textLength="12.2" clip-path="url(#convert-es-dark-line-3)">
+</text><text class="convert-es-dark-r4" x="61" y="117.6" textLength="48.8" clip-path="url(#convert-es-dark-line-4)">&#160;3.&#160;</text><text class="convert-es-dark-r2" x="109.8" y="117.6" textLength="244" clip-path="url(#convert-es-dark-line-4)">Volver&#160;a&#160;la&#160;búsqueda</text><text class="convert-es-dark-r2" x="1171.2" y="117.6" textLength="12.2" clip-path="url(#convert-es-dark-line-4)">
+</text><text class="convert-es-dark-r2" x="1171.2" y="142" textLength="12.2" clip-path="url(#convert-es-dark-line-5)">
+</text><text class="convert-es-dark-r1" x="0" y="166.4" textLength="122" clip-path="url(#convert-es-dark-line-6)">Origen&#160;&#160;&#160;&#160;</text><text class="convert-es-dark-r2" x="146.4" y="166.4" textLength="866.2" clip-path="url(#convert-es-dark-line-6)">Fix&#160;the&#160;flaky&#160;payment&#160;webhook&#160;test&#160;·&#160;Claude&#160;Code&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="convert-es-dark-r2" x="1171.2" y="166.4" textLength="12.2" clip-path="url(#convert-es-dark-line-6)">
+</text><text class="convert-es-dark-r1" x="0" y="190.8" textLength="122" clip-path="url(#convert-es-dark-line-7)">Destino&#160;&#160;&#160;</text><text class="convert-es-dark-r2" x="146.4" y="190.8" textLength="866.2" clip-path="url(#convert-es-dark-line-7)">Codex&#160;·&#160;C:\Projects\acme-shop&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="convert-es-dark-r2" x="1171.2" y="190.8" textLength="12.2" clip-path="url(#convert-es-dark-line-7)">
+</text><text class="convert-es-dark-r1" x="0" y="215.2" textLength="122" clip-path="url(#convert-es-dark-line-8)">Historial&#160;</text><text class="convert-es-dark-r2" x="146.4" y="215.2" textLength="866.2" clip-path="url(#convert-es-dark-line-8)">Contexto&#160;actual&#160;(desde&#160;la&#160;última&#160;compactación)&#160;·&#160;48&#160;mensajes&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="convert-es-dark-r2" x="1171.2" y="215.2" textLength="12.2" clip-path="url(#convert-es-dark-line-8)">
+</text><text class="convert-es-dark-r1" x="0" y="239.6" textLength="122" clip-path="url(#convert-es-dark-line-9)">Subagentes</text><text class="convert-es-dark-r2" x="146.4" y="239.6" textLength="866.2" clip-path="url(#convert-es-dark-line-9)">1&#160;·&#160;se&#160;llevan&#160;su&#160;encargo&#160;y&#160;su&#160;resultado;&#160;sus&#160;pasos&#160;quedan&#160;en&#160;el&#160;archivo</text><text class="convert-es-dark-r2" x="1171.2" y="239.6" textLength="12.2" clip-path="url(#convert-es-dark-line-9)">
+</text><text class="convert-es-dark-r1" x="0" y="264" textLength="122" clip-path="url(#convert-es-dark-line-10)">Formato&#160;&#160;&#160;</text><text class="convert-es-dark-r2" x="146.4" y="264" textLength="866.2" clip-path="url(#convert-es-dark-line-10)">Conversación&#160;nativa,&#160;verificada&#160;al&#160;terminar&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="convert-es-dark-r2" x="1171.2" y="264" textLength="12.2" clip-path="url(#convert-es-dark-line-10)">
+</text><text class="convert-es-dark-r1" x="0" y="288.4" textLength="122" clip-path="url(#convert-es-dark-line-11)">Fidelidad&#160;</text><text class="convert-es-dark-r2" x="146.4" y="288.4" textLength="866.2" clip-path="url(#convert-es-dark-line-11)">41&#160;conservados&#160;·&#160;7&#160;adaptados&#160;·&#160;3&#160;solo&#160;en&#160;el&#160;archivo&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="convert-es-dark-r2" x="1171.2" y="288.4" textLength="12.2" clip-path="url(#convert-es-dark-line-11)">
+</text><text class="convert-es-dark-r5" x="0" y="312.8" textLength="1134.6" clip-path="url(#convert-es-dark-line-12)">Lo&#160;adaptado&#160;(por&#160;ejemplo,&#160;herramientas)&#160;pasa&#160;a&#160;texto;&#160;el&#160;archivo&#160;portable&#160;guarda&#160;el&#160;original&#160;</text><text class="convert-es-dark-r2" x="1171.2" y="312.8" textLength="12.2" clip-path="url(#convert-es-dark-line-12)">
+</text><text class="convert-es-dark-r5" x="0" y="337.2" textLength="109.8" clip-path="url(#convert-es-dark-line-13)">completo.</text><text class="convert-es-dark-r2" x="1171.2" y="337.2" textLength="12.2" clip-path="url(#convert-es-dark-line-13)">
+</text><text class="convert-es-dark-r2" x="0" y="361.6" textLength="244" clip-path="url(#convert-es-dark-line-14)">&#160;¿Qué&#160;quieres&#160;hacer?</text><text class="convert-es-dark-r2" x="1171.2" y="361.6" textLength="12.2" clip-path="url(#convert-es-dark-line-14)">
+</text><text class="convert-es-dark-r1" x="36.6" y="386" textLength="12.2" clip-path="url(#convert-es-dark-line-15)">›</text><text class="convert-es-dark-r3" x="61" y="386" textLength="48.8" clip-path="url(#convert-es-dark-line-15)">&#160;1.&#160;</text><text class="convert-es-dark-r1" x="109.8" y="386" textLength="109.8" clip-path="url(#convert-es-dark-line-15)">Convertir</text><text class="convert-es-dark-r2" x="1171.2" y="386" textLength="12.2" clip-path="url(#convert-es-dark-line-15)">
+</text><text class="convert-es-dark-r4" x="61" y="410.4" textLength="48.8" clip-path="url(#convert-es-dark-line-16)">&#160;2.&#160;</text><text class="convert-es-dark-r2" x="109.8" y="410.4" textLength="671" clip-path="url(#convert-es-dark-line-16)">Convertir&#160;y&#160;mantenerla&#160;sincronizada&#160;(solo&#160;su&#160;historial)</text><text class="convert-es-dark-r2" x="1171.2" y="410.4" textLength="12.2" clip-path="url(#convert-es-dark-line-16)">
+</text><text class="convert-es-dark-r4" x="61" y="434.8" textLength="48.8" clip-path="url(#convert-es-dark-line-17)">&#160;3.&#160;</text><text class="convert-es-dark-r2" x="109.8" y="434.8" textLength="341.6" clip-path="url(#convert-es-dark-line-17)">Llevar&#160;el&#160;historial&#160;completo</text><text class="convert-es-dark-r2" x="1171.2" y="434.8" textLength="12.2" clip-path="url(#convert-es-dark-line-17)">
+</text><text class="convert-es-dark-r4" x="61" y="459.2" textLength="48.8" clip-path="url(#convert-es-dark-line-18)">&#160;4.&#160;</text><text class="convert-es-dark-r2" x="109.8" y="459.2" textLength="244" clip-path="url(#convert-es-dark-line-18)">Volver&#160;a&#160;la&#160;búsqueda</text><text class="convert-es-dark-r2" x="1171.2" y="459.2" textLength="12.2" clip-path="url(#convert-es-dark-line-18)">
+</text>
+    </g>
+    </g>
+</svg>

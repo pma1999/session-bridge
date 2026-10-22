@@ -1,123 +1,178 @@
+<p align="right"><strong>English</strong> · <a href="README.es.md">Español</a></p>
+
 # Session Bridge
 
-[![CI](https://github.com/pma1999/session-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/pma1999/session-bridge/actions/workflows/ci.yml) [![MIT License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+**Start a conversation in Claude Code, continue it in Codex or OpenCode.** Session Bridge finds every coding-agent conversation on your machine and turns any of them into a real, resumable session in another assistant, with a portable archive of what was moved.
 
-Session Bridge is a local command-line tool for inspecting, archiving, and continuing coding-agent conversations across Claude Code, OpenCode, and Codex. It keeps a complete `.sbridge` archive of each transfer and can create native history for specifically verified client versions. An explicit handoff mode prepares a context file and a message for you to send yourself.
+[![CI](https://github.com/pma1999/session-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/pma1999/session-bridge/actions/workflows/ci.yml) [![Latest release](https://img.shields.io/github/v/release/pma1999/session-bridge?label=release)](https://github.com/pma1999/session-bridge/releases/latest) [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml) [![Windows](https://img.shields.io/badge/platform-Windows-0078d4.svg)](#compatibility) [![MIT License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-Session Bridge is an independent community project. It is not affiliated with, endorsed by, or supported by Anthropic, OpenAI, OpenCode, or their maintainers. Native storage formats can change; the compatibility table below describes the versions actually exercised.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/home-en-dark.svg">
+  <img alt="The Session Bridge start screen: one search over Claude Code, Codex and OpenCode conversations, grouped into this folder and other projects" src="docs/images/home-en-light.svg" width="100%">
+</picture>
 
-## What it does and does not do
+## Why
 
-- Runs locally and does not send conversations to a Session Bridge service.
-- Does not call a model when listing, inspecting, converting, exporting, or opening a transfer. Continuing a conversation is done by the native client under that client's settings.
-- Preserves the source conversation and stores a separate transfer archive. A native destination is a new session; an already open client tab does not refresh automatically.
-- Can optionally follow explicitly linked, completed conversation checkpoints on Windows. Sync is local and opt-in: it does not synchronize files, Git state, credentials, permissions, processes, or running subagents.
-- Does not infer native compatibility from a product name. Unknown native client versions refuse native writes. Choose the explicit `handoff` mode when a native version is not enabled.
+Each coding assistant keeps its conversations in its own format, so switching tools usually means starting over and explaining everything again. Session Bridge reads those formats directly, carries the conversation across, and writes a new session the other assistant opens as if it had been there all along. It runs locally, never calls a model, and never changes the conversation it copies from.
 
-## Requirements and installation
+## What you can do
 
-Python 3.11 or newer is required. Download the portable ZIP from the [latest release](https://github.com/pma1999/session-bridge/releases/latest), or clone the repository:
+- **Find any conversation.** One search over every Claude Code, Codex and OpenCode session, with the current folder first. It ignores case, accents and word order.
+- **Continue it elsewhere.** Convert a conversation into a native session of another assistant and open it there, ready for your next message.
+- **Keep two assistants in step.** Link a conversation, and Session Bridge follows its new turns, so you can switch back and forth. Windows only, and off until you turn it on.
+- **Take it with you.** Export a conversation to a portable `.sbridge` archive and import it later, on any machine.
+- **Hand off to anything.** For versions Session Bridge has not verified, it prepares a context file and a message for you to paste yourself.
+- **Stay safe.** Every transfer keeps a verified archive and can be recovered if it is interrupted. Unknown client versions are refused, never guessed at.
+
+## Install
+
+You need Windows, [Python 3.11 or newer](https://www.python.org/downloads/) and at least one of the supported assistants.
+
+1. Download `session-bridge-X.Y.Z-portable.zip` from the [latest release](https://github.com/pma1999/session-bridge/releases/latest) and extract it to a folder you will keep, or clone the repository.
+2. From that folder, run the installer:
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1 -Python python
+   ```
+
+3. Check it works:
+
+   ```powershell
+   sessionbridge doctor
+   ```
+
+The installer creates a private Python environment and puts the `sessionbridge` command in `%USERPROFILE%\.local\bin`. If that folder is not on your `PATH`, the installer says so. It never installs or changes the coding assistants themselves. From then on, [Session Bridge updates itself](#updates).
+
+> [!IMPORTANT]
+> Before your first transfer, back up any assistant data you cannot afford to lose. Session Bridge only adds new sessions and never edits existing ones, but the assistants own their storage and can change it at any release.
+
+## Getting started
+
+Open a terminal in your project folder and run:
 
 ```powershell
-git clone https://github.com/pma1999/session-bridge.git
-cd session-bridge
-powershell -File scripts/install.ps1 -Python python
-sessionbridge --help
-sessionbridge doctor
-```
-
-The installer creates a project-local virtual environment and installs the `sessionbridge` command in your user command directory. Keep the project folder in place. From a release ZIP it installs the release's own wheel; from a clone it builds from the sources. A command that is running is renamed aside and replaced, and removed by a later installation. The installer stops and restarts its managed synchronization worker when needed. Python dependencies are pinned; initial installation needs network access. The installer does not install or upgrade coding clients and refuses to replace an unmanaged command. If it reports one after a manual copy or a lost installation record, check that `%USERPROFILE%\.local\bin\sessionbridge.exe` is yours, delete it, and run the installer again.
-
-### Updates
-
-When you open Session Bridge with no command, it checks GitHub for a newer release at most once a day, in the background while your conversations load. If one exists, it asks: **Update now**, **Not now** (asks again tomorrow; Esc does the same) or **Skip this version** (stays quiet until the next one). Updating downloads the release's portable ZIP, checks it against the release's SHA-256 checksums, installs it with that release's own `install.ps1` into a folder of its own under `%LOCALAPPDATA%\SessionBridge\app`, and opens the new version. If anything fails, the version you have keeps working and the error says where the installer's log is. The synchronization worker is restarted on the new version.
-
-An installation made from a Git clone updates with Git instead: it moves `main` forward to the release tag, only when the clone is on `main` following `origin/main` of this repository, has no uncommitted changes and no commits of its own. Otherwise Session Bridge says why and leaves the clone alone. Other installations (a wheel, Linux) are told about new versions with a link.
-
-```text
-sessionbridge update                     # check now and install
-sessionbridge update --check             # only report; add --json for scripts
-sessionbridge update --yes               # install without asking
-sessionbridge update --startup-check off # stop checking at start (SESSIONBRIDGE_NO_UPDATE_CHECK=1 also does)
-sessionbridge --version
-```
-
-Commands with arguments and `--json` never check for updates or ask. Updating from 0.7.x or earlier needs one manual installation of 0.8.0 or later, because the updater runs in the version being replaced. Checksums come from the same GitHub release as the files: they detect a corrupted or altered download, but they are not a publisher signature.
-
-Each GitHub release includes the portable ZIP, a wheel, and SHA-256 checksum files. Session Bridge is distributed through GitHub Releases; no PyPI release is published.
-
-Before the first transfer, make your own backup of any native client data you cannot replace. Session Bridge writes new native sessions for the exact versions listed below, but these clients own their local databases and formats. Its operation journal and synchronization data are stored separately under `%LOCALAPPDATA%\SessionBridge` on Windows, or `$XDG_DATA_HOME/session-bridge` on Linux. Set `SESSIONBRIDGE_HOME` to use an isolated data directory.
-
-## Quick start
-
-Run `sessionbridge` with no command to open one search over every conversation: Claude Code, Codex and OpenCode sessions, and the conversations you keep synchronized (marked ●). Conversations from the directory where you start it come first, under **In this folder**; every other project follows under **In other projects**, so nothing is hidden behind a scope switch. Subagent and helper threads are left out because they belong to their parent conversation.
-
-Type to filter by title, folder, assistant, or ID. Search ignores case and accents and accepts partial words in any order. Use the arrow keys (or Tab) to move, Enter to open, and Esc to go back. Choosing a session asks where to continue it and shows a summary; from there you can convert it, convert it and keep it synchronized, or switch between the current context (from the last compaction) and the full history. If you edited an earlier message, the version the source assistant would resume is taken by default and the summary offers the others. A subagent's request and result travel with the conversation; its steps stay in the archive. A missing working folder or an unsupported target version is explained, with the next step offered. `--all-projects` lists everything by recency without the folder grouping.
-
-`list` shows sessions from the current directory by default. Directory matching is exact after path normalization: sibling projects and nested directories are separate scopes. Use `--all-projects` to list every directory. Explicit session IDs remain usable from any directory.
-
-```text
 sessionbridge
-sessionbridge --all-projects
-sessionbridge list --from claude --search "my project"
-sessionbridge list --all-projects --search "my project"
-sessionbridge list --cwd "C:\Projects\app"
-sessionbridge show claude-win:SESSION_ID
-sessionbridge convert claude-win:SESSION_ID --to opencode-win --dry-run
-sessionbridge convert claude-win:SESSION_ID --to opencode-win --variant v_VERSION_ID
-sessionbridge convert claude-win:SESSION_ID --to opencode-win --resume
-sessionbridge convert claude-win:SESSION_ID --to codex-win --mode handoff
-sessionbridge export codex-win:SESSION_ID --output conversation.sbridge
-sessionbridge import conversation.sbridge --to claude-win --cwd "C:\Projects\app"
-sessionbridge transfers
-sessionbridge recover TRANSFER_ID
 ```
 
-Use `sessionbridge profile list` to see the installation IDs available on your machine. Add `--json` for the versioned machine-readable output. JSON and other non-interactive resume commands return launch arguments; invoke them yourself.
+1. **Find the conversation.** Type a few letters of its title, folder or assistant. Conversations from the current folder come first, under **In this folder**; everything else follows under **In other projects**. Linked conversations are marked **●**.
+2. **Choose where to continue it.** Pick the other assistant. Session Bridge shows what will be taken: how many messages, whether the history goes back to the last compaction or the very beginning, and what changes on the way.
+3. **Convert.** Session Bridge writes the new session, verifies it, and offers to open it right away.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/convert-en-dark.svg">
+  <img alt="Converting a Claude Code conversation to Codex: the destination menu, the summary of what will be taken, and the next actions" src="docs/images/convert-en-light.svg" width="100%">
+</picture>
+
+Use the arrow keys or Tab to move, Enter to choose and Esc to go back. Every screen works with the keyboard alone. The pictures above use made-up conversations.
+
+Prefer commands? Everything the start screen does is also a command, and `--json` makes every command scriptable:
+
+```powershell
+sessionbridge list --search "payment webhook"
+sessionbridge convert claude-win:SESSION_ID --to codex-win --dry-run
+sessionbridge convert claude-win:SESSION_ID --to codex-win --resume
+```
+
+The [user guide](docs/user-guide.md) walks through every task, and the [command reference](docs/cli-reference.md) lists every option.
+
+## How it works
+
+```mermaid
+flowchart LR
+    A["Source session<br/>(Claude Code, Codex or OpenCode)"] -->|read only| B["Capture and<br/>.sbridge archive"]
+    B --> C{"Target version<br/>verified?"}
+    C -->|yes| D["New native session<br/>written and verified"]
+    C -->|no, or you choose it| E["Handoff:<br/>context file + message"]
+    D --> F["Open it in the<br/>target assistant"]
+```
+
+Session Bridge reads the source conversation without changing it, stores a complete archive of it, and then writes a **new** session in the target assistant's own format. Instructions, approvals and unfinished tool calls from the source are carried as history, never as permissions: the target assistant's own settings apply. A transfer is recorded in a journal, so an interrupted one can be finished with `sessionbridge recover` instead of being repeated.
+
+## Compatibility
+
+Session Bridge writes native sessions only for client versions where four things were observed: the session persists, it shows in the assistant's history, it resumes from a cold start, and the model receives the imported context.
+
+| Platform | Assistant | Native sessions |
+| --- | --- | --- |
+| Windows x64 | Claude Code 2.1.304 | Enabled |
+| Windows x64 | OpenCode 2.0.29 | Enabled, up to 9,362 messages |
+| Windows x64 | Codex CLI 0.159.0 | Enabled, up to 128 MiB per conversation file |
+| Linux and WSL | Any | Not enabled; handoff is available |
+
+All six directions between the three Windows assistants were exercised with Claude Code 2.1.302; the directions into Claude Code were not run again on 2.1.304. Any other version is refused for native writing until it has been verified, and handoff remains available. The [compatibility evidence](docs/native-compatibility.md) and the [verification record](docs/verification.md) describe exactly what was tested.
+
+## Synchronization
+
+Linking a conversation keeps it available in every assistant you use: Session Bridge follows its finished turns in the background, and when you switch assistant it reopens that assistant's session if it is up to date, or creates a new one with the latest turns. If you continue in two places, nothing is overwritten; you choose which continuation to follow.
+
+```powershell
+sessionbridge sync link claude-win:SESSION_ID --name "Checkout redesign"
+sessionbridge sync open "Checkout redesign" --to codex-win
+sessionbridge sync status "Checkout redesign"
+```
+
+Synchronization runs on Windows only and does nothing until you link a conversation. It follows conversations, not files, Git state or running processes. Read the [synchronization guide](docs/synchronization.md) before you rely on it.
+
+## Updates
+
+When a new release is published, Session Bridge asks the next time you open it:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/update-en-dark.svg">
+  <img alt="The update offer: Update now, Not now, or Skip this version" src="docs/images/update-en-light.svg" width="100%">
+</picture>
+
+**Update now** downloads the release, checks it against its published SHA-256 checksums, installs it and reopens Session Bridge on the new version. **Not now** asks again the next day, and **Skip this version** waits for the next one. If anything fails, the version you have keeps working. A Git clone updates with Git instead, and only when it is clean. Read [how updates work](docs/updates.md) for the details, or check by hand:
+
+```powershell
+sessionbridge update --check
+```
 
 ## Language
 
-Session Bridge speaks English and Spanish: the interactive search, every message and error, and `--help`. By default it follows your system: Spanish when the Windows display language (or, elsewhere, `LANGUAGE`, `LC_ALL`, `LC_MESSAGES` or `LANG`) is Spanish, English otherwise.
+Session Bridge speaks English and Spanish and follows your system language. To choose one:
 
-```text
-sessionbridge language            # show the language in use and where it comes from
-sessionbridge language es         # always use Spanish (saved in settings.json in the data directory)
-sessionbridge language auto       # follow the system again
-sessionbridge --lang en list      # this run only
+```powershell
+sessionbridge language es
+sessionbridge language auto
 ```
 
-`SESSIONBRIDGE_LANG=en` or `es` sets it for a shell or a script; `--lang` wins over it, and it wins over the saved choice. The language changes only what people read. Error codes, warning codes, JSON fields and archives are the same in every language, and a JSON error also carries the `key` of its text. The context sent to the destination assistant stays in English, as before, so earlier transfers and synchronized conversations are unaffected. The WSL helper writes in the language of the Windows command that calls it.
+Only the text you read changes. Commands, JSON output, error codes and archives are the same in every language.
 
-## Native compatibility
+## Privacy and safety
 
-Native writes are enabled only when storage, visible history, cold resume, and model-visible continuation have all been observed for that exact version. The evidence uses local mock providers for continuation checks; it does not promise behavior or billing for external providers.
+- **Local only.** Session Bridge has no server. The only network request it makes on its own is the daily update check to GitHub, which you can turn off with `sessionbridge update --startup-check off`.
+- **No model calls.** Listing, converting, exporting and synchronizing never run a model. Continuing the conversation is done by the target assistant, under its own settings and account.
+- **Read only on the source.** The source conversation is never modified. A transfer creates a new session; it never edits or replaces an existing one.
+- **Nothing guessed.** Unknown client versions, ambiguous histories and oversized conversations are refused with an explanation, never truncated or approximated.
+- **Your data stays yours.** Transfers, archives and synchronization data live in `%LOCALAPPDATA%\SessionBridge`. They contain conversation history, so treat backups of that folder as private.
 
-| Platform | Client version | Native writes |
-| --- | --- | --- |
-| Windows x64 | Claude Code 2.1.304 | Enabled |
-| Windows x64 | OpenCode 2.0.29 | Enabled; maximum 9,362 messages |
-| Windows x64 | Codex CLI 0.159.0 | Enabled; maximum 128 MiB per rollout |
-| Linux/WSL | Any | Not enabled; explicit handoff is available |
+See the [security policy](SECURITY.md) to report a vulnerability.
 
-All six cross-client directions among the three listed Windows versions were exercised. How each client records edited messages and subagents, and what Session Bridge takes from them, is described in [edited messages and subagents](docs/native-compatibility.md#edited-messages-and-subagents). Other versions and platforms have not been verified for native writes and are refused by the compatibility gate. See [native compatibility evidence](docs/native-compatibility.md) for the boundaries and [verification record](docs/verification.md) for scope and limits.
+## Troubleshooting
 
-## Optional Windows synchronization
+| You see | What to do |
+| --- | --- |
+| *This native version is not verified; choose handoff mode explicitly.* or *Native conversion is not verified for this target.* | Your assistant's version is not in the [compatibility table](#compatibility). Choose the handoff the start screen offers, or pass `--mode handoff`. |
+| *The source session is active; request a snapshot.* | The conversation is still open in its assistant. Finish the turn, or let Session Bridge take a snapshot of what is there now. |
+| `sessionbridge` is not recognized | Add `%USERPROFILE%\.local\bin` to your user `PATH` and open a new terminal. |
+| The installer says *Refusing to replace an unmanaged command.* | A `sessionbridge.exe` the installer did not create is in the way. Check that it is yours, delete it, and run the installer again. |
+| *The update could not be installed* | The message names the installer's log. The version you have keeps working; run `sessionbridge update` to try again. |
 
-Synchronization is off until you explicitly link a session. It follows completed checkpoints, and each assistant keeps one current session for the conversation. Switch assistants through Session Bridge: it reopens that assistant's session when it is already up to date, including your original one, and otherwise creates a new native session with the latest turns, saying which before it opens. Native sessions are never rewritten, because no supported client lets another program add turns safely while it may have the session open. The previous session stays as it was and is still watched, so if you type in an old tab you are asked which continuation to follow; the other is kept. Existing native tabs stay on the version they already loaded.
+The [user guide](docs/user-guide.md#troubleshooting) covers more cases, and `sessionbridge doctor` shows which assistants Session Bridge can read and write.
 
-```text
-sessionbridge sync link claude-win:SESSION_ID --name "My project"
-sessionbridge sync status "My project"
-sessionbridge sync open "My project" --to codex-win
-```
+## Documentation
 
-Sync runs on Windows only. It does not install a login task, and it does not invoke or update the WSL helper. Read the [synchronization guide](docs/synchronization.md) before linking conversations; synchronization data and backups contain private conversation history.
+| For | Read |
+| --- | --- |
+| Using Session Bridge | [User guide](docs/user-guide.md) · [Command reference](docs/cli-reference.md) · [Synchronization](docs/synchronization.md) · [Updates](docs/updates.md) |
+| What was verified | [Native compatibility](docs/native-compatibility.md) · [Verification record](docs/verification.md) · [Changelog](CHANGELOG.md) |
+| Contributing | [Contributing guide](CONTRIBUTING.md) · [Architecture](docs/architecture.md) · [Implementation contract](docs/CONTRACT.md) · [Maintaining](docs/maintaining.md) |
 
-## Project information
+## Contributing
 
-- [Contributing and development](CONTRIBUTING.md)
-- [Security vulnerability reporting](SECURITY.md)
-- [Code of conduct](CODE_OF_CONDUCT.md)
-- [Changelog](CHANGELOG.md)
-- [MIT License](LICENSE)
-- [Architecture and data handling](docs/architecture.md)
+Issues and pull requests are welcome. Start with the [contributing guide](CONTRIBUTING.md): it explains how to set up the project, how the code is organized and what a change needs before it is merged. Please follow the [code of conduct](CODE_OF_CONDUCT.md).
+
+## License
+
+[MIT](LICENSE). Session Bridge is an independent community project. It is not affiliated with, endorsed by or supported by Anthropic, OpenAI, OpenCode or their maintainers. Claude Code, Codex and OpenCode are names of their respective owners.

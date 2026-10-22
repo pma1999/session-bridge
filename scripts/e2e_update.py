@@ -33,7 +33,7 @@ API = "https://api.github.com/repos/pma1999/session-bridge/releases/latest"
 CDN = "https://release-assets.githubusercontent.com/e2e/"
 TREE = ["src", "scripts", "tests", "docs", ".github"]
 FILES = [
-    "pyproject.toml", "README.md", "requirements.lock", "requirements-dev.lock", ".gitignore", "LICENSE",
+    "pyproject.toml", "README.md", "README.es.md", "requirements.lock", "requirements-dev.lock", ".gitignore", "LICENSE",
     "CONTRIBUTING.md", "SECURITY.md", "CODE_OF_CONDUCT.md", "CHANGELOG.md",
 ]
 

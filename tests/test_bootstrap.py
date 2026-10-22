@@ -216,6 +216,7 @@ def test_portable_upgrade_excludes_old_runtime_wheels(tmp_path, monkeypatch):
     public_files = [
         "pyproject.toml",
         "README.md",
+        "README.es.md",
         "requirements.lock",
         "requirements-dev.lock",
         ".gitignore",
@@ -262,6 +263,7 @@ def test_portable_version_comes_from_checkout_not_installed_runtime(tmp_path, mo
     monkeypatch.setattr(builder.subprocess, "run", lambda *a, **k: None)
     for name in (
         "README.md",
+        "README.es.md",
         "requirements.lock",
         "requirements-dev.lock",
         ".gitignore",

@@ -2,6 +2,11 @@
 
 This file records notable user-facing changes. Version numbers refer to the project package.
 
+## Unreleased
+
+- Documentation rewritten for users and contributors: a new README with screenshots of the real interface, a Spanish README (`README.es.md`), a [user guide](docs/user-guide.md), an [updates guide](docs/updates.md), a reorganized [synchronization guide](docs/synchronization.md), a [command reference](docs/cli-reference.md) generated from the command line, and a rewritten [architecture](docs/architecture.md), contributing guide and maintainer guide.
+- `scripts/build_docs.py` generates the command reference and the screenshots; tests check that documented commands and options exist, that links and anchors resolve, and that the generated reference is current.
+
 ## 0.8.0
 
 - Session Bridge updates itself. Opening it with no command checks GitHub at most once a day, in the background, and offers a newer release: update now, not now (asks again tomorrow) or skip this version. Updating downloads the portable ZIP, checks it against the release's SHA-256 checksums, installs it with that release's own `install.ps1` into a folder of its own, restarts the synchronization worker on it and opens the new version. A failure leaves the version in use working.

@@ -1,4 +1,6 @@
-# Shared implementation contract
+# Implementation contract
+
+The interfaces between Session Bridge's parts, for contributors. The [architecture](architecture.md) explains why they are shaped this way.
 
 Python 3.11+, Pydantic 2. Domain contracts are in `models.py`; public errors use
 `BridgeError(code, key=None, /, **content_free_details)`, where `key` names the text in the
@@ -49,7 +51,7 @@ with a useful manual cleanup diagnostic rather than risk deletion. No root --mod
 
 ## Service facade consumed by CLI
 
-Parent implements `service.Bridge(data_dir: Path|None=None)`:
+`service.Bridge(data_dir: Path|None=None)` exposes:
 
 * `profiles() -> list[Profile]`, `register_profile(Profile) -> Profile`
 * `list_sessions(tool=None, profile=None, search=None, cwd=None, archived=None,
@@ -75,9 +77,9 @@ Noninteractive native fallback must be `--mode handoff`. `--dry-run` uses previe
 The CLI, readers, writers and service are separate modules. Adapter changes require version-specific
 fixtures and native evidence in addition to service-level tests; see native-compatibility.md.
 
-## Local Windows synchronization (0.3.0)
+## Local Windows synchronization
 
-The CLI adds `sync link/list/status/check/open/select/pause/resume/unlink/detach/export/backup/restore`,
+The CLI has `sync link/list/status/check/open/select/pause/resume/unlink/detach/export/backup/restore`,
 plus `sync start/stop/worker-status/run`. `convert --sync [--sync-name NAME]` links a completed native
 transfer. `--dry-run` remains read-only and never starts a worker. Sync rejects WSL before source
 discovery/read. JSON envelopes stay version 1; synchronization status is metadata, never bodies.
@@ -108,7 +110,7 @@ interpolation or agents installation. `wsl.status()` returns available distro na
 CLI `profile add` and `wsl install/status` use these functions. Linux CLI can use local profiles
 in its own environment, with no wsl.exe requirement. Data home LOCALAPPDATA or XDG_DATA_HOME.
 
-## Updates (0.8.0)
+## Updates
 
 The updater always runs in the version being replaced, so what it relies on below is fixed: a
 release that breaks it cannot be installed by the versions already out. `tests/test_updater.py`

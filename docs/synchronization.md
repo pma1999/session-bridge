@@ -1,219 +1,202 @@
-# Local conversation synchronization
+# Synchronization
 
-Session Bridge 0.3.0 adds opt-in synchronization across the verified Windows installations of
-Claude Code, OpenCode and Codex. It follows conversations, not working-tree files or native windows.
-The existing exact-version native compatibility gates still apply; see [native compatibility](native-compatibility.md).
-WSL synchronization is disabled. No WSL distribution or helper is started or upgraded by this feature.
+Synchronization keeps one conversation available in every assistant you use. Link a conversation once, and Session Bridge follows its finished turns in the background; whenever you switch assistant, the session you open carries everything said so far, wherever it was said.
 
-## Start and switch tools
+It is **opt-in**, **Windows only** and **local**: nothing is followed until you link a conversation, and nothing leaves your computer.
 
-Find exact profile/session IDs with `profile list` and `list`. Choose one of these entry points:
+**Contents**
 
-```text
-sessionbridge convert claude-win:SESSION_ID --to opencode-win --sync --sync-name "My project"
-sessionbridge sync link claude-win:SESSION_ID --name "My project"
-sessionbridge sync link claude-win:SESSION_ID --name "My project" --transfer tr_VERIFIED_TRANSFER_ID
-sessionbridge sync open "My project" --to codex-win
-sessionbridge sync open "My project" --to opencode-win --cwd "C:\Projects\app"
+- [What it does and does not do](#what-it-does-and-does-not-do)
+- [Linking a conversation](#linking-a-conversation)
+- [Switching assistants](#switching-assistants)
+- [When you continue in two places](#when-you-continue-in-two-places)
+- [Status at a glance](#status-at-a-glance)
+- [Pausing, detaching and unlinking](#pausing-detaching-and-unlinking)
+- [The background worker](#the-background-worker)
+- [Exports, backups and restores](#exports-backups-and-restores)
+- [When something goes wrong](#when-something-goes-wrong)
+- [How capture works](#how-capture-works)
+- [Storage and JSON output](#storage-and-json-output)
+
+## What it does and does not do
+
+**It does**
+
+- follow the conversations you link, in the [verified Windows versions](native-compatibility.md) of Claude Code, Codex and OpenCode;
+- record each finished turn as a new revision, keeping every earlier one;
+- open the conversation in any of those assistants with the latest turns;
+- keep both continuations, and ask you, when you continued in two places.
+
+**It does not**
+
+- synchronize files, Git state, credentials, permissions, approvals, running processes or running subagents;
+- change an existing native session: switching creates a new one when needed (see [why](#why-a-new-session));
+- refresh a tab you already have open in an assistant;
+- run on Linux or WSL, start a WSL distribution, or update the WSL helper;
+- run a model, contact a server, or link conversations across computers.
+
+## Linking a conversation
+
+On the start screen, choose a conversation, then the assistant to continue in, and pick **Convert and keep it synchronized**. Or, from the command line:
+
+```powershell
+sessionbridge convert claude-win:SESSION_ID --to opencode-win --sync --sync-name "Checkout redesign"
+sessionbridge sync link claude-win:SESSION_ID --name "Checkout redesign"
+sessionbridge sync link claude-win:SESSION_ID --name "Checkout redesign" --transfer tr_TRANSFER_ID
 ```
 
-The first command links the source and its verified conversion. `sync link` alone follows the named
-source; `--transfer` additionally attaches an existing, owned, verified native conversion of that
-source and its exact archived context. It never guesses that independently existing sessions belong
-together. Source arguments must use the complete `PROFILE:SESSION_ID` identity.
+- `convert --sync` converts the conversation and links the source with the new session.
+- `sync link` starts following a session on its own.
+- `sync link --transfer` also attaches a verified conversion you made earlier, with its archived context.
 
-Run `sessionbridge` in a terminal for searchable keyboard selection of linked conversations, target
-tool and, when you continued in more than one place, which continuation to follow. In interactive text mode, opening launches the exact native session
-without sending a message or granting permissions. JSON/noninteractive mode returns the exact
-`argv` and environment instead of launching a client. `--model` selects a destination model only
-when supported by its existing adapter; synchronization itself performs no inference.
+The source must be the full `PROFILE:SESSION_ID`; `sessionbridge list` and `profile list` show them. Session Bridge never assumes two sessions you created separately belong together.
 
-`sync open` reconciles linked sources first. Each assistant then has **one current session** for
-the conversation: the one Session Bridge opened or created for it last.
+Linking starts the [background worker](#the-background-worker). Add `--no-start` to start it later.
 
-- If a session of that assistant is already at the chosen revision, in the same folder and with
-  the same model, it is reopened as it is. This includes your original session: going back to
-  the assistant you started in with no new turns elsewhere reopens that session.
-- Otherwise a **new** native session is created with the current context. Its full source capture
-  is archived, the mapping is recorded, and it becomes that assistant's current session.
-- The previous session stays exactly as it was and becomes an **earlier session**. It is still
-  watched: if you type in it, for example in a tab you left open, that work is captured as its own
-  continuation and you are asked which one to follow. It is checked when its own file changes and
-  fully at least every five minutes, so activity elsewhere in a shared database does not re-read it.
-- Before opening, the interactive flow says which of the two will happen.
+A synchronized conversation follows the version of the source its assistant would resume. If you edit an earlier message there, the next revision carries the edited history. That is why a conversion made with another version (`--variant`, or **Choose another version**) cannot be kept synchronized: `--sync` cannot be combined with `--variant`, and `sync link` refuses such a conversion with `sync_variant_unsupported`.
 
-`--new-copy` explicitly creates a further copy while retaining old mappings and uncertain attempts.
-Use it deliberately, rather than as a blind response to an uncertain import.
+## Switching assistants
 
-**Why a new session instead of updating the old one.** None of the supported clients offers a way to
-add turns to an existing session, and none lets another program tell whether a session is loaded in
-a running client: the desktop apps serve every conversation from one process. Writing into a session
-a client has open would leave history its model never saw, or split its record chain, silently. An
-open tab would not show the new turns either, because clients do not reload a loaded session from
-disk. Native sessions are therefore never rewritten; the verified compatibility covers new sessions.
+Open a linked conversation from the start screen (marked **●**), or with:
 
-The logical conversation name stays the same; native IDs change. Use Session Bridge to switch
-assistants: it always opens the current session. A native tab already open on an earlier session
-does not refresh or switch itself; continue in the session that opened.
-`sessionbridge resume` also follows a linked session when given its **exact qualified session ID**
-or exact transfer ID. Abbreviated/ambiguous identifiers retain the ordinary one-off behavior.
+```powershell
+sessionbridge sync open "Checkout redesign" --to codex-win
+sessionbridge sync open "Checkout redesign" --to opencode-win --cwd "C:\Projects\acme-shop"
+```
 
-## Capture and fidelity
+Session Bridge first collects any new finished turns. Then each assistant has **one current session** for the conversation, the one Session Bridge opened or created for it last:
 
-The local worker reads only explicitly linked Windows sessions. Native source stores remain
-read-only. It uses native completion evidence, not a period of filesystem silence, to publish a
-checkpoint. A running/incomplete turn waits; the last verified context remains available as an
-explicit snapshot. Changed files are reconciled on a two-second default interval, with a full
-repair check at least every thirty seconds when polling is not busy. This is eventual capture,
-not a guaranteed real-time latency bound.
+- **If that session is already up to date**, in the same folder and with the same model, it is reopened as it is. This includes your original session: going back to the assistant you started in, with no new turns elsewhere, reopens it.
+- **Otherwise a new native session is created** with the current context. Its full source is archived, and it becomes that assistant's current session.
+- **The previous session stays exactly as it was** and becomes an *earlier session*. It is still watched: if you type in it, for example in a tab you left open, that work is captured as a continuation of its own and you are asked which one to follow.
 
-Each revision contains the current retained context: original compaction/summary and following
-active turns. Full available native captures, pending events, unknown fields and related subagents
-are archived separately. A compaction or rewind creates a revision without erasing earlier archive
-data or automatically reviving discarded messages. Repeated identical messages keep distinct event
-identities. Re-reading an unchanged materialization does not create an echo revision.
+Before opening, the start screen says which of the two will happen. Opening starts the assistant on that exact session without sending a message or granting any permission. With `--json`, or without a terminal, it returns the exact command line and environment instead of starting the assistant. `--model` picks a model in the target when its assistant supports it. `--new-copy` deliberately creates one more copy, keeping every earlier one.
 
-Foreign tool calls/results become closed historical observations. Internal instructions, provider
-signatures, reasoning and approvals stay archival where available; they do not acquire destination
-authority. Unsupported attachments retain the existing fidelity report and archival behavior.
-Native settings and permissions apply when you continue. No files, Git checkpoints, subprocesses,
-approvals, credentials or running subagents are synchronized or recreated.
+The conversation's name stays the same while native session IDs change, so always switch through Session Bridge. `sessionbridge resume` also follows a linked conversation when you give it the exact full session ID or transfer ID of one of its sessions; an abbreviated ID resumes that session as it is.
 
-A synchronized conversation follows the version of the source that its client would resume. If
-you edit an earlier message there, the next revision is a rewind or a context replacement, and the
-next open carries the edited history. A conversion made with another version (`--variant`, or
-"Elegir otra variante" in the interactive flow) cannot be kept synchronized: `--sync` cannot be combined with
-`--variant`, and `sync link` refuses such a conversion with `sync_variant_unsupported`.
+### Why a new session
 
-If a source is missing, malformed, changing while read, has an ambiguous branch, or its registered
-installation changes, its last valid revision is retained and the problem is reported. It is not
-silently replaced with an older or partial context. A native version upgrade still requires fresh
-compatibility verification before writing destinations.
+None of the supported assistants offers a way to add turns to an existing session, and none lets another program tell whether a session is open in a running client: the desktop apps serve every conversation from one process. Writing into a session that a client has open would leave history its model never saw, or split its record chain, silently. An open tab would not show the new turns either, because clients do not reload a loaded session from disk. Session Bridge therefore never rewrites native sessions; the verified compatibility covers new sessions.
 
-## Branches and status
+## When you continue in two places
 
-```text
+If two sessions continue from the same revision, for example you typed in Claude Code and in Codex without switching through Session Bridge, both are kept as separate **continuations**. Nothing is merged and nothing is overwritten.
+
+The start screen shows each one: where it was typed (an assistant, its original session or an earlier copy), how long ago, and its last request. It remembers your choice. The other continuations are kept, and new turns in one you did not choose ask again.
+
+From the command line:
+
+```powershell
+sessionbridge sync status "Checkout redesign"
+sessionbridge sync select "Checkout redesign" claude-win
+sessionbridge sync select "Checkout redesign" rv_REVISION_ID
+sessionbridge sync open "Checkout redesign" --to codex-win --branch rv_REVISION_ID
+```
+
+`sync select` takes a revision ID prefix, or the profile of the assistant you continued in when that assistant has one continuation. `--branch` takes the same values for one open only. It also explicitly accepts opening that verified snapshot while another source has a turn in progress or an error.
+
+## Status at a glance
+
+```powershell
 sessionbridge sync list
-sessionbridge sync status "My project"
-sessionbridge sync check "My project"
-sessionbridge sync select "My project" claude-win
-sessionbridge sync select "My project" rv_REVISION_ID
-sessionbridge sync open "My project" --to codex-win --branch rv_REVISION_ID
+sessionbridge sync status "Checkout redesign"
+sessionbridge sync check "Checkout redesign"
 ```
 
-Continuing two native sessions from the same revision produces separate retained heads, called
-continuations. There is no automatic merge and no last-writer-wins overwrite. The interactive flow
-shows where each was typed (an assistant, its original session or an earlier copy), how long ago,
-and its last request, and remembers your choice. `sync select` does the same from the command line,
-taking a version ID prefix or the profile of the assistant you continued in, when that assistant has
-one continuation (`sync select "My project" claude-win`). Other continuations are kept. New turns in
-a continuation that was not chosen, or a new continuation from an earlier session, ask again.
-`--branch` takes the same values and selects a head for one open only; it also explicitly accepts
-opening that verified snapshot while another source has a pending turn or an error. Status shows
-each assistant's current session and how many earlier ones it has, head IDs, origin, reason, the
-selected head and endpoint health, without conversation bodies. In JSON, each endpoint also carries
-`tool`, `role` (`current`, `superseded` or `detached`) and `origin` (`original` or `copy`).
+`sync list` shows every linked conversation. `sync status` shows each assistant's current session and how many earlier ones it has, the continuations with their origin, the selected one, and the health of each source, without any conversation text. `sync check` collects new turns now.
 
-States are `synced`, `waiting`, `conflict`, `error`, `paused` and `unlinked`. `synced` means the
-last observed completed histories have a selected or unique head; it does not claim every native
-window has been updated. `waiting` means a first checkpoint or a native turn is pending.
+| State | Means |
+| --- | --- |
+| `synced` | The last finished turns everywhere lead to one selected or unique continuation. It does not mean every open tab shows them. |
+| `waiting` | The first turn, or a turn in progress, has not finished yet. |
+| `conflict` | There are several continuations and none is selected. |
+| `error` | A source could not be read. Its last good revision is kept. |
+| `paused` | You paused it. |
+| `unlinked` | You stopped following it. Its history is kept. |
 
-```text
-sessionbridge sync pause "My project"
-sessionbridge sync resume "My project"
-sessionbridge sync detach "My project" opencode-win:OLD_SESSION_ID
-sessionbridge sync unlink "My project"
+## Pausing, detaching and unlinking
+
+```powershell
+sessionbridge sync pause "Checkout redesign"
+sessionbridge sync resume "Checkout redesign"
+sessionbridge sync detach "Checkout redesign" opencode-win:OLD_SESSION_ID
+sessionbridge sync unlink "Checkout redesign"
 ```
 
-Pause is reversible and prevents capture/open until resumed. Detach retires one exact endpoint,
-for example after deleting its old native session yourself; its branches and archives remain. The
-last enabled endpoint cannot be detached: unlink the conversation instead. Unlink stops following
-the whole conversation and retains its name/history for inspection and export. It is not deletion
-or a synonym for pause. To create a separate link afterward, choose a new name.
+- **Pause** stops collecting and opening until you **resume**. Nothing is lost. `sync resume --no-start` resumes without starting the worker.
+- **Detach** stops following one session, for example after you deleted it in its assistant. Its revisions and archives stay. The last source cannot be detached; unlink the conversation instead.
+- **Unlink** stops following the whole conversation. Its name and history stay available to `status`, `export` and `backup`. It is not a deletion and not a pause; to link the conversation again, choose a new name.
 
-## Worker lifecycle and installation
+None of these deletes a native session.
 
-```text
-sessionbridge sync start
+## The background worker
+
+A small hidden worker collects new turns. Linking, resuming or opening a conversation starts it; there is one per data folder, and it keeps running after the command that started it ends.
+
+```powershell
 sessionbridge sync worker-status
+sessionbridge sync start
 sessionbridge sync stop
 sessionbridge sync run --once
 sessionbridge sync run --interval 2
 ```
 
-Linking, resuming capture or opening starts one managed, hidden worker per Session Bridge data
-directory. It survives its launching CLI. `link --no-start` and `sync resume --no-start` defer that
-start. The lifetime OS lock and generation token establish ownership; PIDs and old receipts alone
-do not. Stop requests the exact generation and waits for acknowledgement. It never kills a PID.
-After a crash, the OS releases the lock and a later start can reconcile from stored state.
+- It only reads the sessions you linked. It never writes native sessions or runs a model.
+- It is not started with Windows: no login task, startup entry or client hook is installed. After a restart, open Session Bridge or run `sync start`; anything said in the meantime is collected then.
+- `stop` asks the worker to stop and waits for it to confirm. A process is never killed by its PID; a busy or unresponsive worker is diagnosed instead.
+- `run` runs it in the foreground: `--once` for a single pass, or `--interval SECONDS` (0.1 to 3600) until Ctrl+C.
+- Errors are stored as codes, never as conversation text.
 
-No login task, startup registry entry or client hook is installed. After a reboot, run Session
-Bridge or `sync start`; changes made while stopped are then reconciled. Foreground `run` supports
-Ctrl+C and a bounded 0.1–3600 second interval. Poll failures store content-free codes, not exception
-text or conversation bodies. A busy/unresponsive worker is diagnosed rather than forcibly killed.
+The Windows installer stops a running worker before replacing its code and starts it again on the new version; if the worker cannot be stopped, the code is not replaced. An update installed in a new folder stops the worker through the installation it replaces.
 
-The Windows installer checks an existing managed command before replacing files, stops a running
-managed worker cooperatively, installs and verifies the runtime, then starts a new generation only
-if the worker was running beforehand. Stop failure blocks code replacement. A failed update attempts
-to restart the installed runtime and reports failure; repair it before `sync start` if necessary.
-When the installation being replaced lives in another folder (an update installs each release in
-a folder of its own), the worker is stopped through the runtime the installation receipt names and
-started again from the new one. It does not change global environment variables, native client
-settings or WSL installations.
+## Exports, backups and restores
 
-## Recovery, export and backups
-
-```text
-sessionbridge transfers --json
-sessionbridge recover tr_TRANSFER_ID
-sessionbridge sync open "My project" --to codex-win
-sessionbridge sync export "My project" --output conversation.sbridge
+```powershell
+sessionbridge sync export "Checkout redesign" --output checkout.sbridge
 sessionbridge sync backup --output sync-history.sqlite3
 sessionbridge sync restore sync-history.sqlite3 --into "D:\SessionBridge-Restored"
 ```
 
-A native materialization intention and operation ID are persisted before publication. Retries
-reconcile that operation and its exact allocated native ID through the existing transfer journal;
-an exit code alone never proves completion. If the target was continued during recovery, the new
-revision is preserved and diagnosed before opening. An uncertain operation must be recovered and
-reopened before backing up; backups refuse pending intentions. An explicit further copy preserves,
-rather than deletes, any earlier uncertain attempt.
+**Export** writes one continuation of a conversation to a `.sbridge` archive, with its context and its complete capture. Choose the continuation with `--branch` when there are several. `sessionbridge import` turns the archive into a new one-off session anywhere.
 
-`sync export` produces the existing integrity-checked `.sbridge` format for a selected head, including
-its canonical context and complete available capture. `--branch` resolves multiple heads explicitly.
-Ordinary `import` can turn that package into a new one-off native session in another installation.
+**Backup** copies the whole synchronization store, with every conversation, revision and mapping, using SQLite's consistent backup. It never replaces an existing file, and refuses while a session is still being written: finish or recover it first. The checksum it prints detects a damaged backup; it does not prove who made it.
 
-`sync backup` uses SQLite's consistent backup API and validates the private temporary output before
-exclusive publication; it never replaces an existing output. The backup contains the sync graph,
-all captured history, contexts, blobs and mappings. It contains private conversation data. The
-returned SHA-256 detects corruption; it does not authenticate the backup's author.
+A backup is **history only**. It does not include the transfer journal (`bridge.sqlite3`), your profiles, transfer archives outside the synchronization store, native sessions, credentials or project files.
 
-This is a **history-only backup**. It does not include `bridge.sqlite3`, registered profiles, transfer
-journals/archives outside the sync store, native client sessions, credentials or project files.
-Restore requires a new or empty directory, refuses links/nonempty targets and never overwrites an
-existing store. It does not change the active installation or start a worker. To inspect the restored
-archive, set `SESSIONBRIDGE_HOME` to that directory for the command process. Original endpoint
-installations must still match for automatic capture. If they are unavailable, inspect heads and
-export a selected head, or explicitly `sync open ... --branch REV --to LOCAL_PROFILE --cwd PATH`.
-A retained native mapping without the old transfer journal is reused only when its exact operation
-marker and current context can be verified. Different-machine paths/profile identities are not
-silently rebound.
+**Restore** needs a new or empty folder, never overwrites anything, and does not touch the installation in use or start a worker. To look at a restored store, set `SESSIONBRIDGE_HOME` to that folder for the commands you run. Automatic collection needs the original assistant installations; without them, inspect and export the continuations, or open one explicitly with `sync open … --branch REV --to PROFILE --cwd PATH`. Paths and profiles from another computer are never silently rebound.
 
-`sync unlink` and `sync detach` never remove native sessions. Ordinary `undo` retains its existing
-strict checks and may refuse native deletion if inactivity/descendant safety cannot be established.
-Retire a removed endpoint explicitly before expecting error-free synchronization to continue.
+Backups and restored stores contain private conversation history.
 
-## Storage and extension contracts
+## When something goes wrong
 
-`sync.sqlite3` schema 1 is separate from the unchanged one-off journal. Immutable revisions form a
-parent graph. Capture events, raw records, attachments and canonical messages are SHA-256-addressed
-compressed blobs; chunked references reuse long history prefixes. Integrity, related-depth and size
-limits are enforced on both write and read. A single native item is limited to 64 MiB and the aggregate
-capture/context budget to 256 MiB. Oversized data fails explicitly; nothing is silently truncated.
+A source that is missing, damaged, changing while it is read, has an ambiguous branch, or whose installation changed, keeps its last good revision, and the problem is reported in `sync status`. Session Bridge never replaces it with an older or partial context.
 
-All synchronization commands preserve the CLI's JSON envelope version 1. `status`/`list` are metadata
-only; `check` returns changed revision count, link statuses and content-free errors. `open` additionally
-returns link/revision/transfer/native IDs, exact native launch data, `launched` and whether an explicit
-snapshot was chosen. `restore` returns the restored path, own schema version and `history_only: true`.
-Source/target profiles are pinned, and unknown native versions do not inherit compatibility by name.
-There is no network synchronization server, remote publication or automatic cross-PC linking.
+| Code | What to do |
+| --- | --- |
+| `sync_not_current` | A source has a turn in progress or an error. Wait for the turn, or open a known revision with `--branch`. |
+| `sync_conflict` | There are several continuations. Choose one with `sync select`, or `--branch` for one open. |
+| `sync_paused` | Run `sync resume`. |
+| `sync_profile_changed` | The assistant's installation changed since linking. A new version needs verification before native writing; detach the old session if you no longer use it. |
+| `sync_target_advanced` | The target was continued while a session was being recovered. The new revision is kept; check `sync status` and open again. |
+| `sync_recovery_required` | A session was not fully written. Run `sessionbridge transfers`, then `recover`, and open again. |
+| `sync_worker_unresponsive` | Run `sync worker-status`. A busy worker is left alone. |
+| `sync_variant_unsupported` | The conversion used another version of the conversation. Convert again without `--variant` to synchronize. |
+| `sync_windows_only` | Synchronization works with Windows profiles only. |
+
+Writing a new session is recorded before it happens, so a retry continues the same operation and never creates a second session by accident. An interrupted one must be recovered before opening again or making a backup. `--new-copy` keeps, rather than deletes, an earlier uncertain attempt.
+
+## How capture works
+
+The worker uses each assistant's own record that a turn finished, not a period of silence in its files. A turn in progress waits, and the last verified revision stays available as an explicit snapshot. Changed files are checked every two seconds by default, with a full check at least every thirty seconds when the worker is not busy. This is eventual: there is no guaranteed delay.
+
+Each revision holds the current context: the latest compaction summary and the turns after it. Full captures, pending events, unknown fields and related subagents are archived separately. A compaction or a rewind creates a revision without erasing earlier ones or reviving discarded messages. Repeated identical messages keep their own identities, and re-reading an unchanged session creates no revision.
+
+Tool calls and results from another assistant become closed history. Instructions, provider signatures, reasoning and approvals stay in the archive and never gain authority in the target. The target's own settings and permissions apply when you continue.
+
+Earlier sessions are checked when their own file changes, and fully at least every five minutes, so activity elsewhere in a shared database does not re-read them.
+
+## Storage and JSON output
+
+Synchronization uses its own store, `sync.sqlite3` (schema 1), separate from the transfer journal. Revisions are immutable and form a graph. Captured events, raw records, attachments and messages are compressed and addressed by SHA-256, and long histories share their common beginning. Integrity, depth and size limits are checked on both write and read: one native item may be up to 64 MiB, and a capture with its context up to 256 MiB. Larger data fails with an error; nothing is truncated.
+
+All `sync` commands use the same JSON envelope (version 1) as the rest of the CLI. `status` and `list` return metadata only; each source also carries `tool`, `role` (`current`, `superseded` or `detached`) and `origin` (`original` or `copy`). `check` returns the number of new revisions, link states and error codes. `open` returns the link, revision, transfer and native IDs, the exact launch command, whether it `launched`, and whether an explicit snapshot was chosen. `restore` returns the restored path, the store's schema version and `history_only: true`.

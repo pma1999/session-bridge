@@ -24,6 +24,7 @@ def main():
         for name in (
             "pyproject.toml",
             "README.md",
+            "README.es.md",
             "requirements.lock",
             "requirements-dev.lock",
             ".gitignore",

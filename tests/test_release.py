@@ -17,6 +17,7 @@ def release(tmp_path):
     for name in (
         "LICENSE",
         "README.md",
+        "README.es.md",
         "CONTRIBUTING.md",
         "SECURITY.md",
         "CODE_OF_CONDUCT.md",

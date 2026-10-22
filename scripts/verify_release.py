@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 ROOT_FILES = {
     "pyproject.toml",
     "README.md",
+    "README.es.md",
     "requirements.lock",
     "requirements-dev.lock",
     ".gitignore",
@@ -94,6 +95,7 @@ def verify(root: Path) -> dict:
         for name in (
             "LICENSE",
             "README.md",
+            "README.es.md",
             "CONTRIBUTING.md",
             "SECURITY.md",
             "CODE_OF_CONDUCT.md",

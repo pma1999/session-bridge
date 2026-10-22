@@ -1,0 +1,107 @@
+<svg class="rich-terminal" viewBox="0 0 1190 342.79999999999995" xmlns="http://www.w3.org/2000/svg">
+    <!-- Generated with Rich https://www.textualize.io -->
+    <style>
+
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Regular"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Regular.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Regular.woff") format("woff");
+        font-style: normal;
+        font-weight: 400;
+    }
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Bold"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Bold.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Bold.woff") format("woff");
+        font-style: bold;
+        font-weight: 700;
+    }
+
+    .home-es-light-matrix {
+        font-family: Fira Code, monospace;
+        font-size: 20px;
+        line-height: 24.4px;
+        font-variant-east-asian: full-width;
+    }
+
+    .home-es-light-title {
+        font-size: 18px;
+        font-weight: bold;
+        font-family: arial;
+    }
+
+    .home-es-light-r1 { fill: #1f2328;font-weight: bold }
+.home-es-light-r2 { fill: #57606a }
+.home-es-light-r3 { fill: #1f2328 }
+.home-es-light-r4 { fill: #1b7c83;font-weight: bold }
+.home-es-light-r5 { fill: #ffffff;font-weight: bold }
+.home-es-light-r6 { fill: #ffffff }
+    </style>
+
+    <defs>
+    <clipPath id="home-es-light-clip-terminal">
+      <rect x="0" y="0" width="1170.1999999999998" height="291.79999999999995" />
+    </clipPath>
+    <clipPath id="home-es-light-line-0">
+    <rect x="0" y="1.5" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="home-es-light-line-1">
+    <rect x="0" y="25.9" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="home-es-light-line-2">
+    <rect x="0" y="50.3" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="home-es-light-line-3">
+    <rect x="0" y="74.7" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="home-es-light-line-4">
+    <rect x="0" y="99.1" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="home-es-light-line-5">
+    <rect x="0" y="123.5" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="home-es-light-line-6">
+    <rect x="0" y="147.9" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="home-es-light-line-7">
+    <rect x="0" y="172.3" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="home-es-light-line-8">
+    <rect x="0" y="196.7" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="home-es-light-line-9">
+    <rect x="0" y="221.1" width="1171.2" height="24.65"/>
+            </clipPath>
+<clipPath id="home-es-light-line-10">
+    <rect x="0" y="245.5" width="1171.2" height="24.65"/>
+            </clipPath>
+    </defs>
+
+    <rect fill="#ffffff" stroke="#d0d7de" stroke-width="1" x="1" y="1" width="1188" height="340.8" rx="8"/><text class="home-es-light-title" fill="#1f2328" text-anchor="middle" x="594" y="27">sessionbridge</text>
+            <g transform="translate(26,22)">
+            <circle cx="0" cy="0" r="7" fill="#ff5f57"/>
+            <circle cx="22" cy="0" r="7" fill="#febc2e"/>
+            <circle cx="44" cy="0" r="7" fill="#28c840"/>
+            </g>
+
+    <g transform="translate(9, 41)" clip-path="url(#home-es-light-clip-terminal)">
+    <rect fill="#1b7c83" x="0" y="74.7" width="24.4" height="24.65" shape-rendering="crispEdges"/><rect fill="#1f2328" x="24.4" y="74.7" width="683.2" height="24.65" shape-rendering="crispEdges"/><rect fill="#57606a" x="707.6" y="74.7" width="256.2" height="24.65" shape-rendering="crispEdges"/>
+    <g class="home-es-light-matrix">
+    <text class="home-es-light-r1" x="0" y="20" textLength="170.8" clip-path="url(#home-es-light-line-0)">Session&#160;Bridge</text><text class="home-es-light-r2" x="170.8" y="20" textLength="317.2" clip-path="url(#home-es-light-line-0)">&#160;&#160;·&#160;&#160;C:\Projects\acme-shop</text><text class="home-es-light-r3" x="1171.2" y="20" textLength="12.2" clip-path="url(#home-es-light-line-0)">
+</text><text class="home-es-light-r4" x="0" y="44.4" textLength="24.4" clip-path="url(#home-es-light-line-1)">›&#160;</text><text class="home-es-light-r2" x="24.4" y="44.4" textLength="500.2" clip-path="url(#home-es-light-line-1)">Busca&#160;por&#160;título,&#160;carpeta,&#160;asistente&#160;o&#160;ID</text><text class="home-es-light-r3" x="1171.2" y="44.4" textLength="12.2" clip-path="url(#home-es-light-line-1)">
+</text><text class="home-es-light-r1" x="0" y="68.8" textLength="207.4" clip-path="url(#home-es-light-line-2)">&#160;&#160;En&#160;esta&#160;carpeta</text><text class="home-es-light-r3" x="1171.2" y="68.8" textLength="12.2" clip-path="url(#home-es-light-line-2)">
+</text><text class="home-es-light-r5" x="0" y="93.2" textLength="24.4" clip-path="url(#home-es-light-line-3)">›●</text><text class="home-es-light-r6" x="24.4" y="93.2" textLength="683.2" clip-path="url(#home-es-light-line-3)">&#160;Checkout&#160;redesign&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="home-es-light-r6" x="707.6" y="93.2" textLength="256.2" clip-path="url(#home-es-light-line-3)">Sincronizada&#160;·&#160;Al&#160;día</text><text class="home-es-light-r3" x="1171.2" y="93.2" textLength="12.2" clip-path="url(#home-es-light-line-3)">
+</text><text class="home-es-light-r3" x="24.4" y="117.6" textLength="683.2" clip-path="url(#home-es-light-line-4)">&#160;Fix&#160;the&#160;flaky&#160;payment&#160;webhook&#160;test&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="home-es-light-r2" x="707.6" y="117.6" textLength="305" clip-path="url(#home-es-light-line-4)">Claude&#160;Code&#160;·&#160;hace&#160;12&#160;min</text><text class="home-es-light-r3" x="1171.2" y="117.6" textLength="12.2" clip-path="url(#home-es-light-line-4)">
+</text><text class="home-es-light-r3" x="24.4" y="142" textLength="683.2" clip-path="url(#home-es-light-line-5)">&#160;Add&#160;rate&#160;limiting&#160;to&#160;the&#160;public&#160;API&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="home-es-light-r2" x="707.6" y="142" textLength="195.2" clip-path="url(#home-es-light-line-5)">Codex&#160;·&#160;hace&#160;3&#160;h</text><text class="home-es-light-r3" x="1171.2" y="142" textLength="12.2" clip-path="url(#home-es-light-line-5)">
+</text><text class="home-es-light-r3" x="24.4" y="166.4" textLength="683.2" clip-path="url(#home-es-light-line-6)">&#160;Explain&#160;the&#160;order&#160;state&#160;machine&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="home-es-light-r2" x="707.6" y="166.4" textLength="268.4" clip-path="url(#home-es-light-line-6)">OpenCode&#160;·&#160;hace&#160;2&#160;días</text><text class="home-es-light-r3" x="1171.2" y="166.4" textLength="12.2" clip-path="url(#home-es-light-line-6)">
+</text><text class="home-es-light-r1" x="0" y="190.8" textLength="244" clip-path="url(#home-es-light-line-7)">&#160;&#160;En&#160;otros&#160;proyectos</text><text class="home-es-light-r3" x="1171.2" y="190.8" textLength="12.2" clip-path="url(#home-es-light-line-7)">
+</text><text class="home-es-light-r3" x="24.4" y="215.2" textLength="683.2" clip-path="url(#home-es-light-line-8)">&#160;Migrate&#160;the&#160;dashboard&#160;charts&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="home-es-light-r2" x="707.6" y="215.2" textLength="305" clip-path="url(#home-es-light-line-8)">Codex&#160;·&#160;ayer&#160;·&#160;acme-admin</text><text class="home-es-light-r3" x="1171.2" y="215.2" textLength="12.2" clip-path="url(#home-es-light-line-8)">
+</text><text class="home-es-light-r3" x="24.4" y="239.6" textLength="683.2" clip-path="url(#home-es-light-line-9)">&#160;Write&#160;the&#160;onboarding&#160;guide&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="home-es-light-r2" x="707.6" y="239.6" textLength="439.2" clip-path="url(#home-es-light-line-9)">Claude&#160;Code&#160;·&#160;hace&#160;3&#160;días&#160;·&#160;acme-do…</text><text class="home-es-light-r3" x="1171.2" y="239.6" textLength="12.2" clip-path="url(#home-es-light-line-9)">
+</text><text class="home-es-light-r3" x="24.4" y="264" textLength="683.2" clip-path="url(#home-es-light-line-10)">&#160;Find&#160;the&#160;memory&#160;leak&#160;in&#160;the&#160;image&#160;worker&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="home-es-light-r2" x="707.6" y="264" textLength="427" clip-path="url(#home-es-light-line-10)">OpenCode&#160;·&#160;hace&#160;5&#160;días&#160;·&#160;acme-media</text><text class="home-es-light-r3" x="1171.2" y="264" textLength="12.2" clip-path="url(#home-es-light-line-10)">
+</text><text class="home-es-light-r2" x="0" y="288.4" textLength="683.2" clip-path="url(#home-es-light-line-11)">&#160;&#160;7&#160;conversaciones&#160;·&#160;↑↓&#160;elegir&#160;·&#160;Intro&#160;abrir&#160;·&#160;Esc&#160;salir</text><text class="home-es-light-r3" x="1171.2" y="288.4" textLength="12.2" clip-path="url(#home-es-light-line-11)">
+</text>
+    </g>
+    </g>
+</svg>
