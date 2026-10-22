@@ -2,7 +2,7 @@
 
 This file records notable user-facing changes. Version numbers refer to the project package.
 
-## Unreleased
+## 0.8.2
 
 - OpenCode's compactions no longer pass its serialized recent turns to the destination as user text. OpenCode copies recent tool results into them word for word, so an instruction planted in a tool's output could reach the destination as if the user had written it. The turns now travel as a historical observation, an assistant message holding them as one escaped line of data, and only the summary the model wrote keeps the user role OpenCode gives it.
 - Text containing U+2028, U+2029 or U+0085, common in web pages, is written to Claude Code and Codex instead of being refused with `native_corrupt`. Session Bridge read its own new session back with a line splitter that also breaks on those characters. Tool output now escapes them too, so no line reader can end an observation early.
