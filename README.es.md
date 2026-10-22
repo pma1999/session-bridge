@@ -78,12 +78,13 @@ La [guía de usuario](docs/user-guide.md) recorre cada tarea y la [referencia de
 ## Cómo funciona
 
 ```mermaid
+%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart LR
-    A["Sesión de origen<br/>(Claude Code, Codex u OpenCode)"] -->|solo lectura| B["Captura y<br/>archivo .sbridge"]
-    B --> C{"¿Versión de destino<br/>verificada?"}
-    C -->|sí| D["Sesión nativa nueva<br/>escrita y verificada"]
-    C -->|no, o si lo eliges| E["Handoff:<br/>archivo de contexto + mensaje"]
-    D --> F["Ábrela en el<br/>asistente de destino"]
+    A["Sesión<br/>de origen"] -->|solo lectura| B["Archivo<br/>.sbridge"]
+    B --> C{"¿Versión de<br/>destino<br/>verificada?"}
+    C -->|sí| D["Sesión nativa<br/>nueva"]
+    C -->|no, o si lo eliges| E["Handoff:<br/>archivo +<br/>mensaje"]
+    D --> F["Ábrela en<br/>el destino"]
 ```
 
 Session Bridge lee la conversación de origen sin modificarla, guarda un archivo completo de ella y escribe una sesión **nueva** en el formato propio del asistente de destino. Las instrucciones, aprobaciones y llamadas a herramientas sin terminar del origen viajan como historial, nunca como permisos: se aplica la configuración del asistente de destino. Cada transferencia queda registrada en un diario, de modo que una transferencia interrumpida se completa con `sessionbridge recover` en vez de repetirse.

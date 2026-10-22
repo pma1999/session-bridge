@@ -19,20 +19,21 @@ This page explains how Session Bridge is put together and which rules each part 
 ## The big picture
 
 ```mermaid
+%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TB
-    subgraph Entry["What people use"]
-        CLI["cli.py<br/>commands, JSON envelope"]
-        UI["interactive.py<br/>start screen and menus"]
+    subgraph Entry["Entry points"]
+        CLI["cli.py<br/>commands, JSON"]
+        UI["interactive.py<br/>start screen<br/>and menus"]
         SyncCLI["sync_cli.py"]
     end
     subgraph Core["Application"]
-        Service["service.py — Bridge<br/>every destination effect is journaled"]
-        Sync["sync.py — SyncService"]
-        Updates["updates.py / updater.py"]
+        Service["service.py<br/>Bridge facade<br/>journals every<br/>effect"]
+        Sync["sync.py<br/>SyncService"]
+        Updates["updates.py<br/>updater.py"]
     end
     subgraph Adapters["Native formats"]
-        Readers["readers/<br/>claude · codex · opencode"]
-        Writers["writers/<br/>registry gate + adapters"]
+        Readers["readers/<br/>claude · codex<br/>opencode"]
+        Writers["writers/<br/>version gate<br/>and adapters"]
     end
     subgraph Storage["Own storage"]
         Store["store.py<br/>bridge.sqlite3"]
@@ -51,7 +52,7 @@ flowchart TB
     Service --> Archive
     Sync --> Service
     Sync --> SyncStore
-    Daemon["sync_daemon.py<br/>background worker"] --> Sync
+    Daemon["sync_daemon.py<br/>background<br/>worker"] --> Sync
 ```
 
 Three ideas shape the whole design:
@@ -81,15 +82,16 @@ All code is in `src/session_bridge/`.
 ## A transfer, step by step
 
 ```mermaid
+%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 stateDiagram-v2
-    [*] --> prepared: capture read, archive written
-    prepared --> importing: native ID allocated
-    importing --> verifying: written by the adapter
-    verifying --> completed: read back and matched
-    importing --> recovery: error or interruption
-    verifying --> recovery: mismatch or interruption
-    recovery --> completed: recover reconciles
-    completed --> undone: undo, when provably safe
+    [*] --> prepared: archived
+    prepared --> importing: ID allocated
+    importing --> verifying: written
+    verifying --> completed: read back
+    importing --> recovery: interrupted
+    verifying --> recovery: mismatch
+    recovery --> completed: recover
+    completed --> undone: undo, if safe
 ```
 
 1. **Read.** The reader captures the source session read-only. SQLite sources are opened in `mode=ro` with `query_only`, and only the assistant's own session tables are queried; native databases are never copied or restored. Files that change while being read are detected.

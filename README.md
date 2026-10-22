@@ -78,12 +78,13 @@ The [user guide](docs/user-guide.md) walks through every task, and the [command 
 ## How it works
 
 ```mermaid
+%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart LR
-    A["Source session<br/>(Claude Code, Codex or OpenCode)"] -->|read only| B["Capture and<br/>.sbridge archive"]
-    B --> C{"Target version<br/>verified?"}
-    C -->|yes| D["New native session<br/>written and verified"]
-    C -->|no, or you choose it| E["Handoff:<br/>context file + message"]
-    D --> F["Open it in the<br/>target assistant"]
+    A["Source session"] -->|read only| B["Archive<br/>.sbridge"]
+    B --> C{"Target<br/>version<br/>verified?"}
+    C -->|yes| D["New native<br/>session"]
+    C -->|no, or your choice| E["Handoff:<br/>file + message"]
+    D --> F["Open it in<br/>the target"]
 ```
 
 Session Bridge reads the source conversation without changing it, stores a complete archive of it, and then writes a **new** session in the target assistant's own format. Instructions, approvals and unfinished tool calls from the source are carried as history, never as permissions: the target assistant's own settings apply. A transfer is recorded in a journal, so an interrupted one can be finished with `sessionbridge recover` instead of being repeated.
