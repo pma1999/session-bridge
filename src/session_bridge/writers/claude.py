@@ -120,7 +120,7 @@ def check_format(profile, installed):
         except OSError:
             continue
         text = data.decode("utf-8", errors="replace")
-        for line in text.splitlines():
+        for line in text.split("\n"):
             try:
                 row = json.loads(line)
             except ValueError:
@@ -150,7 +150,9 @@ def read_rows(profile, native_id):
     if path is None:
         return None
     try:
-        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        # Only a newline ends a JSONL record; str.splitlines() also breaks inside strings on U+2028 and others.
+        text = path.read_text(encoding="utf-8")
+        rows = [json.loads(line) for line in text.split("\n") if line.strip()]
         if any(not isinstance(row, dict) for row in rows):
             raise ValueError("invalid native row")
     except (ValueError, OSError):

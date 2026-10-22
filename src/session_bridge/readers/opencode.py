@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from session_bridge import history
 from session_bridge.errors import BridgeError
-from session_bridge.models import SessionRef
+from session_bridge.models import Event, SessionRef
 
 from .common import (
     attachments_in,
@@ -158,6 +158,7 @@ def read(profile, ref, *, snapshot=False):
                 reverted = True
                 cut = len(events)
             kind = row.get("type") if generation == "v2" else data.get("role")
+            recent = ""
             role = kind if kind in ("user", "assistant", "system") else "unknown"
             parts = part_map.get(key, []) if generation == "legacy" else []
             content = (
@@ -191,13 +192,13 @@ def read(profile, ref, *, snapshot=False):
                 event_kind = "summary"
                 role = "user"
                 content = text(data.get("summary", ""))
+                # OpenCode's own serialization of the turns it kept, tool results included. It sends
+                # them as historical context, so they travel as an observation, not as the user's words.
                 recent = text(data.get("recent", ""))
-                if recent:
-                    content += "\n\n[Retained recent conversation]\n" + recent
                 if data.get("providerContext"):
                     # Provider-specific encrypted checkpoints cannot be replayed across arbitrary models.
                     notes.append("source_provider_checkpoint_archive_only")
-                    if not content:
+                    if not content and not recent:
                         ambiguous = True
                 if not reverted:
                     for earlier in events:
@@ -225,6 +226,19 @@ def read(profile, ref, *, snapshot=False):
                     timestamp=timestamp(row.get("time_created")),
                 )
             )
+            if recent:
+                events.append(
+                    Event(
+                        id=key + ":recent",
+                        kind="tool",
+                        role="tool",
+                        text=historical_tool_text("opencode", "compaction_recent", recent=recent),
+                        active=not reverted and not mirrored,
+                        native={"row": row, "data": data},
+                        parent_id=data.get("parentID"),
+                        timestamp=timestamp(row.get("time_created")),
+                    )
+                )
         return events, cut
 
     events, cut = build(boundary, warnings)

@@ -434,9 +434,16 @@ def attachments_in(records, base):
     return attachments
 
 
+# JSON leaves these raw, but many line readers (Python's str.splitlines() among them) break on them.
+_LINE_BREAKS = tuple(map(chr, (0x85, 0x2028, 0x2029)))
+
+
 def historical_tool_text(source_format, source_kind, **values):
-    """Selected native fields rendered as inert historical data, without provider replay state."""
-    return json.dumps(
+    """Selected native fields rendered as inert historical data, without provider replay state.
+
+    The result is a single line by any line-breaking rule, so nothing quoted in it can end the
+    observation that carries it."""
+    value = json.dumps(
         {
             "source_format": source_format,
             "source_kind": source_kind,
@@ -446,6 +453,10 @@ def historical_tool_text(source_format, source_kind, **values):
         ensure_ascii=False,
         sort_keys=True,
     )
+    for character in _LINE_BREAKS:
+        # They only occur inside JSON strings, where their ASCII escape means the same.
+        value = value.replace(character, json.dumps(character)[1:-1])
+    return value
 
 
 def block_events(

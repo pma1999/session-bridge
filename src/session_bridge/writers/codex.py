@@ -162,7 +162,8 @@ def _read_rows(profile, native_id):
                 decoded = stream.read(MAX_NATIVE_BYTES + 1)
             if len(decoded) > MAX_NATIVE_BYTES:
                 raise BridgeError("native_limit", "error.native_limit.decompressed")
-        rows = [json.loads(line) for line in decoded.decode("utf-8").splitlines() if line]
+        # Only a newline ends a JSONL record; str.splitlines() also breaks inside strings on U+2028 and others.
+        rows = [json.loads(line) for line in decoded.decode("utf-8").split("\n") if line.strip()]
         if any(not isinstance(row, dict) for row in rows):
             raise ValueError("invalid row")
         meta = next(row["payload"] for row in rows if row.get("type") == "session_meta")

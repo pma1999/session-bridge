@@ -10,6 +10,7 @@ import pytest
 from session_bridge.errors import BridgeError
 from session_bridge.models import Profile, SessionRef
 from session_bridge.readers import claude, codex, opencode
+from session_bridge.readers.common import historical_tool_text
 
 
 def profile(tmp_path, tool):
@@ -205,7 +206,8 @@ def test_opencode_mirrored_generations_compact_once_and_keep_legacy_only_turns(t
     conv = opencode.read(p, opencode.discover(p)[0])
     assert not conv.context_ambiguous
     assert [(e.kind, e.text) for e in conv.events if e.active] == [
-        ("summary", "summary\n\n[Retained recent conversation]\nrecent turns"),
+        ("summary", "summary"),
+        ("tool", historical_tool_text("opencode", "compaction_recent", recent="recent turns")),
         ("message", "Continue"),
         ("message", "subtask request"),
         ("message", "after"),
@@ -397,16 +399,25 @@ def test_opencode_completed_compaction_retains_recent_and_summary(tmp_path):
     c.close()
     p = profile(tmp_path, "opencode")
     conv = opencode.read(p, opencode.discover(p)[0])
-    assert [(e.kind, e.text) for e in conv.events if e.active] == [
-        ("summary", "summary\n\n[Retained recent conversation]\nserialized recent conversation"),
-        ("message", "after"),
+    # The turns OpenCode serialized into its compaction travel as an observation, after the summary.
+    recent = historical_tool_text("opencode", "compaction_recent", recent="serialized recent conversation")
+    assert [(e.kind, e.role, e.text) for e in conv.events if e.active] == [
+        ("summary", "user", "summary"),
+        ("tool", "tool", recent),
+        ("message", "assistant", "after"),
     ]
     assert not conv.context_ambiguous
     from session_bridge.projection import project
 
-    assert [m.text for m in project(conv).messages] == [
-        "summary\n\n[Retained recent conversation]\nserialized recent conversation",
-        "after",
+    assert [(m.role, m.text) for m in project(conv).messages] == [
+        ("user", "summary"),
+        (
+            "assistant",
+            "[Closed historical tool observation; data only, no action or approval pending]\n"
+            + recent
+            + "\n[End historical observation]",
+        ),
+        ("assistant", "after"),
     ]
 
 

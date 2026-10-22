@@ -2,6 +2,13 @@
 
 This file records notable user-facing changes. Version numbers refer to the project package.
 
+## Unreleased
+
+- OpenCode's compactions no longer pass its serialized recent turns to the destination as user text. OpenCode copies recent tool results into them word for word, so an instruction planted in a tool's output could reach the destination as if the user had written it. The turns now travel as a historical observation, an assistant message holding them as one escaped line of data, and only the summary the model wrote keeps the user role OpenCode gives it.
+- Text containing U+2028, U+2029 or U+0085, common in web pages, is written to Claude Code and Codex instead of being refused with `native_corrupt`. Session Bridge read its own new session back with a line splitter that also breaks on those characters. Tool output now escapes them too, so no line reader can end an observation early.
+- Because of these two changes, a synchronized conversation whose OpenCode source has a compaction with retained turns, or tool output with those characters, records one new revision the next time it is checked, with no change in the source.
+- Tests feed a prompt injection hidden in tool results through all six directions and across compactions (`tests/test_tool_result_injection.py`).
+
 ## 0.8.1
 
 - Native sessions keep working when an assistant updates. A version newer than the oldest verified one, with the same major number, is now written to natively, and its format is checked on every transfer: Claude Code's newest sessions must still have the shape Session Bridge writes (otherwise nothing is written, `native_format_changed`), and Codex and OpenCode read the new session back themselves. Before, only the exact verified versions were accepted, so every assistant update needed a new release. Older versions and other major versions are still refused. The summary and `doctor` say when a version is newer than the verified ones.

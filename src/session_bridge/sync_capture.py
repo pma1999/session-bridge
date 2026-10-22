@@ -41,8 +41,11 @@ def checkpoint(conversation: Conversation) -> Checkpoint:
             else:
                 data = native.get("data") if isinstance(native.get("data"), dict) else {}
                 timing = data.get("time") if isinstance(data.get("time"), dict) else {}
+                row = native.get("row") if isinstance(native.get("row"), dict) else {}
+                # A completed compaction row yields its summary and the recent turns it retained.
                 completed = (event.role == "assistant" and timing.get("completed") is not None) or (
-                    event.kind == "summary" and data.get("status") == "completed"
+                    (event.kind == "summary" or row.get("type") == "compaction")
+                    and data.get("status") == "completed"
                 )
             if completed:
                 boundary = index
