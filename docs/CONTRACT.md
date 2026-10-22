@@ -41,7 +41,7 @@ Fingerprint canonical captured content, excluding capture timestamp; detect file
 * `undo(profile: Profile, receipt: NativeReceipt) -> None` own unchanged inactive subtree only
 * `resume_argv(profile: Profile, native_id: str, cwd: str) -> list[str]`
 
-Unknown/unverified version refuses native writing; handoff always possible only on explicit choice.
+A version is verified (listed in `registry.VERIFIED`) or compatible (newer than the oldest verified one, same major number, format checked on each transfer); any other version refuses native writing. Handoff always possible only on explicit choice.
 Use local mock providers and isolated native homes to establish gates. Never use live authentication,
 real model inference, current user source session writes or direct native SQLite writes. Native ID
 is allocated before writing. Error may leave target: never blindly retry. Receipt fingerprint should

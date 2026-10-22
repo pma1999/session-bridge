@@ -6,7 +6,7 @@ from prompt_toolkit.application import create_app_session
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from session_bridge import interactive, ui
+from session_bridge import i18n, interactive, ui
 from session_bridge.errors import BridgeError
 from session_bridge.models import Conversation, Fidelity, SessionRef, Transfer
 
@@ -929,3 +929,22 @@ def test_interactive_flows_show_no_text_outside_the_catalogs(monkeypatch, capsys
     shown.append(capsys.readouterr().out)
     stray = set(re.findall(r"[^\W\d_]{2,}", pseudo("\n".join(shown)))) - FLOW_DATA
     assert stray == set(), "\n".join(shown)
+
+
+def test_summary_says_when_a_newer_version_is_written_with_a_format_check(monkeypatch):
+    from types import SimpleNamespace
+
+    from rich.console import Console
+
+    from session_bridge import cli
+
+    console = Console(record=True, width=120)
+    monkeypatch.setattr(cli, "_console_out", console)
+    ref = SimpleNamespace(title="Demo", tool="claude", cwd="C:/work", key="claude-win:x")
+    preview = {"message_count": 2, "capability": {"reason": "capability.compatible"}, "fidelity": {}}
+    interactive._summary(ref, "Codex", preview, context="current", context_from=None, mode="native")
+    assert i18n.t("capability.compatible") in console.export_text()
+    console = Console(record=True, width=120)
+    monkeypatch.setattr(cli, "_console_out", console)
+    interactive._summary(ref, "Codex", preview, context="current", context_from=None, mode="handoff")
+    assert i18n.t("capability.compatible") not in console.export_text()

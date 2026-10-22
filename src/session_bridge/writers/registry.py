@@ -1,4 +1,11 @@
-"""Version-gated facade; unsupported never silently becomes handoff."""
+"""Version-gated facade; unsupported never silently becomes handoff.
+
+A version is ``verified`` when it passed the four isolated checks itself, and ``compatible`` when it is
+newer than the oldest verified one with the same major number: the format each writer emits is then
+checked on every transfer (Claude Code before writing, against the sessions that version wrote;
+Codex by having the client read the session back; OpenCode through its own import and a readback of
+its database), so a client update needs a new release only when its format changes.
+"""
 
 from __future__ import annotations
 
@@ -11,12 +18,31 @@ from session_bridge.errors import BridgeError
 from session_bridge.models import Capability
 
 from . import claude, codex, opencode
-from .common import check_version, detect_version, executable, validate_id
+from .common import check_version, detect_version, executable, semver, validate_id
 
 VERSIONS = {"claude": claude.VERSION, "opencode": opencode.VERSION, "codex": codex.VERSION}
-# Requires observed persistence, presentation, exact resume and model-visible context.
-VERIFIED: dict[str, str] = {"claude": "2.1.304", "opencode": "2.0.29", "codex": "0.159.0"}
+# Each passed observed persistence, presentation, exact resume and model-visible context.
+VERIFIED: dict[str, tuple[str, ...]] = {
+    "claude": ("2.1.304", "2.1.308"),
+    "opencode": ("2.0.29", "2.1.3"),
+    "codex": ("0.159.0", "0.163.0"),
+}
 EVIDENCE = "docs/native-compatibility.md"
+REASONS = {"verified": "capability.verified", "compatible": "capability.compatible"}
+# Reasons no version gives any more, which stored transfers and older WSL helpers still carry.
+RETIRED_REASONS = ("capability.pending_checks",)
+
+
+def status(tool, version):
+    """``verified``, ``compatible`` or ``None`` for a version string such as ``codex-cli 0.163.0``."""
+    found = semver(version or "")
+    if found is None:
+        return None
+    verified = [semver(item) for item in VERIFIED[tool]]
+    if found in verified:
+        return "verified"
+    oldest = min(verified)
+    return "compatible" if found[0] == oldest[0] and found > oldest else None
 
 
 def capability(profile):
@@ -26,15 +52,9 @@ def capability(profile):
             version = detect_version(profile) or ""
         except BridgeError:
             version = ""
-    exact = VERSIONS[profile.tool]
-    matches = version == exact or version.split(" ")[0] == exact or version == f"codex-cli {exact}"
-    enabled = matches and VERIFIED.get(profile.tool) == exact
-    if not matches:
-        reason = "capability.unverified_version"
-    else:
-        reason = "capability.pending_checks"
-    if enabled:
-        reason = "capability.verified"
+    state = status(profile.tool, version)
+    enabled = state is not None
+    reason = REASONS.get(state, "capability.unverified_version")
     if enabled and (sys.platform != "win32" or platform.machine().lower() not in {"amd64", "x86_64"}):
         enabled = False
         reason = "capability.windows_x64_only"
@@ -43,7 +63,7 @@ def capability(profile):
         version=version or None,
         native=enabled,
         reason=reason,
-        max_messages=9362 if profile.tool == "opencode" and matches else None,
+        max_messages=9362 if profile.tool == "opencode" and state else None,
         evidence=[EVIDENCE],
     )
 
@@ -71,8 +91,10 @@ def write(request):
         )
     if not Path(request.cwd).is_dir():
         raise BridgeError("cwd_missing", "error.cwd_missing.target")
-    check_version(request.profile, VERSIONS[request.profile.tool], cwd=request.cwd)
+    installed = check_version(request.profile, lambda found: status(request.profile.tool, found), cwd=request.cwd)
     if request.profile.tool == "claude":
+        if status("claude", installed) == "compatible":
+            claude.check_format(request.profile, installed)
         receipt = claude.write(request)
     elif request.profile.tool == "opencode":
         receipt = opencode.write(request)

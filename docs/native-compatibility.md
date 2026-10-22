@@ -6,16 +6,35 @@ messages; cold resume of the exact ID in the selected working directory; and bot
 markers in the next request captured by a local mock provider. A success exit status
 or a synthetic JSONL that our own parser accepts does not establish those claims.
 
-The gate in `writers/registry.py` is deliberately closed until the complete test
-passes for an exact installed version. Unknown versions refuse native conversion.
-Handoff is available only when explicitly selected by the caller.
+The gate in `writers/registry.py` knows two kinds of version:
 
-| Destination | Version investigated | Native gate | Current evidence |
+- **Verified**: a version that passed the complete test itself. These are listed below.
+- **Compatible**: a version newer than the oldest verified one, with the same major number. Native
+  writing goes ahead, and the format is checked on every transfer instead of being assumed:
+  - Claude Code: before writing, the newest sessions Claude Code itself wrote with that version must
+    still have the shape of the rows Session Bridge writes. If they do not, nothing is written
+    (`native_format_changed`). When that version has not written a session yet there is nothing to
+    compare and the write goes ahead; the weekly check below covers that case for the maintainers.
+  - Codex and OpenCode: after writing, the client itself reads the session back (Codex through
+    `app-server thread/read`, OpenCode through its own import and database), and it must match message
+    for message. Otherwise the transfer fails and is reported, never accepted.
+
+Older versions, another major version and anything without a version number refuse native conversion.
+Handoff is available only when explicitly selected by the caller. A client update therefore needs a new
+Session Bridge release only when its format changes; a weekly check of the newest clients
+(`scripts/watch_clients.py`, run by the *Client watch* workflow) reports when that happens.
+
+| Destination | Verified versions | Native gate | Current evidence |
 | --- | --- | --- | --- |
-| Claude Code, Windows x64 | 2.1.304 | Enabled | All four gates passed: the probe recorded persistence, cold resume and continuation to a local mock; Unicode native TUI history was confirmed by inspection. 2.1.302 passed the same gates and is no longer the enabled version. |
-| OpenCode, Windows x64 | 2.0.29 | Enabled, maximum 9,362 messages | All four gates passed, including native mini TUI and exact cold export. |
-| Codex CLI, Windows x64 | 0.159.0 | Enabled, maximum 128 MiB rollout | All four gates passed with native legacy UI events and response items, including the native TUI. |
+| Claude Code, Windows x64 | 2.1.304, 2.1.308 | Enabled from 2.1.304 within 2.x | All four gates passed for both: the probe recorded persistence, cold resume and continuation to a local mock; Unicode native TUI history was confirmed by inspection. 2.1.302 passed the same gates earlier. |
+| OpenCode, Windows x64 | 2.0.29, 2.1.3 | Enabled from 2.0.29 within 2.x, maximum 9,362 messages | All four gates passed for both, including native mini TUI and exact cold export. |
+| Codex CLI, Windows x64 | 0.159.0, 0.163.0 | Enabled from 0.159.0 within 0.x, maximum 128 MiB rollout | All four gates passed for both with native legacy UI events and response items, including the native TUI. |
 | Linux/WSL destination | Any | Disabled | Native writing has not been verified on this platform. Readers and helper are exercised; explicit handoff is available. |
+
+Claude Code 2.1.308, Codex CLI 0.163.0 and OpenCode 2.1.3 were verified on 2026-10-22 with
+`scripts/probe_native.py`, and the six sync directions with `scripts/probe_sync.py`.
+OpenCode 1.x (the `opencode-ai` npm package) stores conversations differently and is not supported for
+native writing; handoff is available.
 
 Verified on 2026-10-19. Four cross-tool native directions also passed the actual Session Bridge
 CLI with exact resume argv and unchanged source hashes. The Windows follow-up additionally verified
@@ -140,7 +159,7 @@ same isolated home; no global process termination or regular-profile trust chang
 The alternative supported SESSIONS importer was also verified. It creates visible legacy history,
 but drops leading assistant messages, normalizes some strings and allocates a random target before
 persisting its source mapping. Those fidelity and crash-recovery gaps motivated the guarded
-private-format adapter, matching the existing Claude strategy. Unknown versions remain disabled.
+private-format adapter, matching the existing Claude strategy.
 
 Sources: [app-server injection](https://learn.chatgpt.com/docs/app-server#inject-items-into-a-thread),
 [native migration](https://learn.chatgpt.com/docs/app-server#detect-and-import-external-agent-config).

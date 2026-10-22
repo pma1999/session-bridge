@@ -4,14 +4,20 @@ This guide is for maintainers enabling a new client version or publishing a rele
 
 ## Compatibility changes
 
-Before enabling native writes for a client version, verify all four gates on that exact platform and version:
+Newer client versions with the same major number are written to without a release: their format is checked on every transfer (see [native compatibility](native-compatibility.md)). The *Client watch* workflow runs `scripts/watch_clients.py` every week against the newest Claude Code, Codex and OpenCode and opens an issue when an unattended gate fails or the gate refuses the version. Run it by hand on Windows to check a specific version:
+
+```powershell
+python scripts/watch_clients.py --version claude=2.1.308
+```
+
+A release is needed only when that check fails. Before adding a version to `registry.VERIFIED`, verify all four gates on that exact platform and version:
 
 1. **Persistence.** The imported session is still there after the importing process exits.
 2. **Presentation.** The client's own history shows the imported user and assistant messages.
 3. **Cold resume.** Starting the client fresh opens the exact session ID in the intended working folder.
 4. **Model context.** The next request to a local mock provider contains the imported context.
 
-Use isolated client profiles, synthetic sessions and a local mock provider (`scripts/probe_native.py`). Never use a personal profile or a paid provider as a probe target. Unknown versions must keep refusing native writes. Record the tested platform and version pairs, the limits found, and anything left unverified in [native compatibility](native-compatibility.md) and [verification](verification.md).
+Use isolated client profiles, synthetic sessions and a local mock provider (`scripts/probe_native.py`). Never use a personal profile or a paid provider as a probe target. Versions older than the oldest verified one, other major versions and unparseable versions must keep refusing native writes. Record the tested platform and version pairs, the limits found, and anything left unverified in [native compatibility](native-compatibility.md) and [verification](verification.md).
 
 For synchronization changes, verify that only explicitly linked sources are captured, unfinished turns do not become checkpoints, continuations remain available, backups contain synchronization history only, and synchronization does not invoke or update the WSL helper (`scripts/probe_sync.py`).
 
@@ -73,7 +79,7 @@ Installed copies update themselves with the code of the version being replaced, 
 - [ ] Version bumped in `pyproject.toml` and `src/session_bridge/__init__.py`.
 - [ ] `CHANGELOG.md`, compatibility and verification documents updated.
 - [ ] Generated documentation current (`python scripts/build_docs.py --check`).
-- [ ] Local checks and any exact-version native probes passed.
+- [ ] Local checks and any native probes for newly verified versions passed.
 - [ ] CI and CodeQL green on the exact commit being tagged.
 - [ ] Four assets attached; downloaded hashes match `dist/`.
 - [ ] `releases/latest` names the new tag; tag and `main` point to the same commit.

@@ -721,6 +721,8 @@ def _summary(ref, target, preview, *, context: str, context_from: str | None, mo
         _note(i18n.t("summary.adapted_note"), "dim")
     if "source_activity_unknown" in fidelity.get("warnings", []):
         _note(i18n.t("summary.activity_unknown_note"), "dim")
+    if mode == "native" and preview.get("capability", {}).get("reason") == "capability.compatible":
+        _note(i18n.t("capability.compatible"), "dim")
 
 
 def _preview(bridge, ref, conversation, target_profile, state) -> Any:

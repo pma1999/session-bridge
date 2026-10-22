@@ -24,7 +24,7 @@ This guide covers everything Session Bridge does, task by task. For a short intr
 
 - Windows x64 with [Python 3.11 or newer](https://www.python.org/downloads/).
 - At least one of Claude Code, Codex CLI or OpenCode, used at least once so it has conversations on disk.
-- For native sessions, the exact versions in the [compatibility table](../README.md#compatibility). Other versions can still use [handoff](#native-session-or-handoff).
+- For native sessions, a version in the [compatibility table](../README.md#compatibility) or a newer one of the same major version. Other versions can still use [handoff](#native-session-or-handoff).
 
 **Installing**
 
@@ -131,7 +131,7 @@ When Session Bridge cannot tell where the current context begins, it asks you to
 
 ### Native session or handoff
 
-A **native session** is written in the target assistant's own format, appears in its history, and resumes like any other. Session Bridge only writes native sessions for [verified versions](native-compatibility.md).
+A **native session** is written in the target assistant's own format, appears in its history, and resumes like any other. Session Bridge writes native sessions for [verified versions](native-compatibility.md) and for newer ones of the same major version, checking their format on every transfer; the summary says so when that applies.
 
 A **handoff** works with any version. Session Bridge writes the conversation to a context file and gives you a message to paste into a new conversation in the target assistant; the message asks it to read that file as background before doing anything. Choose it on the start screen when native writing is not available, or pass `--mode handoff`. Session Bridge never switches to handoff on its own.
 
@@ -269,7 +269,8 @@ Each error has a stable code, shown before the message, that you can search for 
 | Code or message | Cause | What to do |
 | --- | --- | --- |
 | `native_unavailable`, *Native conversion is not verified for this target* | The target assistant's version is not in the compatibility table. | Choose the handoff the start screen offers, or pass `--mode handoff`. |
-| `native_version_changed` | The assistant was updated after its profile was recorded. | Run `sessionbridge doctor`. A new version needs verification before native writing is enabled. |
+| `native_version_changed` | The installed assistant is older than the verified versions, or a different major version. | Run `sessionbridge doctor`. Update the assistant, or use handoff. |
+| `native_format_changed` | A newer Claude Code stores conversations differently from the verified format. | Use handoff, and watch the [releases](https://github.com/pma1999/session-bridge/releases) for a version that supports the new format. |
 | `source_active` | The conversation is still open and may be mid-turn. | Finish the turn, or take a snapshot (`--snapshot`, or the start screen's option). |
 | `ambiguous_context` | Session Bridge cannot tell where the current context starts. | Take the full history (`--context all`) or pick a starting message (`--context-from`). |
 | `cwd_missing`, `cwd_required` | The working folder does not exist on this machine, or is unknown. | Pass `--cwd` with the folder to open the session in. The start screen asks for it. |
@@ -299,7 +300,7 @@ Yes. Either convert again, or [link the conversation](synchronization.md) and sw
 None of the supported assistants lets another program add turns to a session safely while it may be open, and open tabs do not reload from disk. Session Bridge therefore always writes a new session, and leaves existing ones untouched.
 
 **My assistant just updated and native conversion stopped working.**
-That is deliberate: a new client version can store sessions differently, so it stays disabled until verified. Use handoff in the meantime, and watch the [releases](https://github.com/pma1999/session-bridge/releases) for a version that enables it.
+A newer version of the same major version keeps working: Session Bridge checks its format on every transfer. It stops only when that check fails, because the assistant changed how it stores conversations, or when the major version changes. Use handoff in the meantime, and watch the [releases](https://github.com/pma1999/session-bridge/releases) for a version that supports it.
 
 **Does it copy my files, Git state or permissions?**
 No. It moves conversations only. The target assistant works on the folder you choose, with its own permissions.

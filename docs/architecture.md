@@ -57,7 +57,7 @@ flowchart TB
 
 Three ideas shape the whole design:
 
-1. **Read natively, write natively, verify everything.** Each assistant's format is read by its own reader and written by its own writer. A native write is enabled only for an exact client version that passed four runtime checks, and every write is read back before it counts.
+1. **Read natively, write natively, verify everything.** Each assistant's format is read by its own reader and written by its own writer. A native write is enabled for client versions that passed four runtime checks and for newer ones with the same major number whose format still checks out, and every write is read back before it counts.
 2. **The archive and the context are separate.** What was captured is preserved completely in an archive; what is sent to the target (the *projection*) is a chosen part of it. Choosing less context never loses data.
 3. **Effects go through one journal.** Every write to an assistant's storage is recorded before it happens, so an interruption is recovered, never repeated.
 
@@ -97,7 +97,7 @@ stateDiagram-v2
 1. **Read.** The reader captures the source session read-only. SQLite sources are opened in `mode=ro` with `query_only`, and only the assistant's own session tables are queried; native databases are never copied or restored. Files that change while being read are detected.
 2. **Project.** `projection.py` selects the context: the current context since the last compaction, the full lineage, or from a chosen message. Unknown relationships are never guessed: the conversation is marked ambiguous and the user chooses.
 3. **Archive.** The full capture is stored as a `.sbridge` archive whose SHA-256 is bound to the transfer in the journal.
-4. **Gate.** `writers/registry.py` checks the target's exact version. An unverified version refuses native writing; handoff only happens when the caller asks for it.
+4. **Gate.** `writers/registry.py` checks the target's version: a verified one, or a newer one with the same major number whose format is checked (Claude Code before writing, Codex and OpenCode by the readback). Anything else refuses native writing; handoff only happens when the caller asks for it.
 5. **Write.** The native ID is allocated first, then the adapter writes. Publication is exclusive: an existing session is never replaced.
 6. **Verify.** The adapter reads the session back through the assistant's own format and compares it with what was sent. An exit code alone never completes a transfer.
 
@@ -135,7 +135,7 @@ Both databases refuse to open a newer schema version than they know. A future sc
 
 **Foreign authority is never installed.** System and developer instructions, approvals, provider signatures and unfinished tool calls from the source stay archival. Historical tool calls become inert text. The target's own settings and permissions apply.
 
-**Compatibility is exact.** A native capability needs durable storage, visible history, a cold resume of the exact ID and model-visible context, observed for that exact client version. Version ranges are never widened by similarity.
+**Compatibility is checked, not assumed.** A version is *verified* when durable storage, visible history, a cold resume of the exact ID and model-visible context were observed for it. A newer version with the same major number is *compatible*: it is written to only while its format checks out on that transfer, and a transfer whose format does not check out is refused or fails, never accepted. Older versions and other major versions are refused. See [native compatibility](native-compatibility.md).
 
 **Deletion is narrow.** Files are published through a private temporary file and an exclusive hard link on the same filesystem; existing outputs are never replaced. Deletion is limited to verified objects Session Bridge owns. Native `undo` refuses unless inactivity, ownership of every descendant and an atomic deletion guard can all be established, and then names the exact session for manual cleanup.
 
@@ -174,7 +174,7 @@ Every text a person reads lives in `i18n/en.py` and `i18n/es.py` and is referred
 
 | You want to | Start in | Also |
 | --- | --- | --- |
-| Support a new client version | `writers/registry.py` and the client's writer | Version-specific fixtures, isolated probes with `scripts/probe_native.py`, and the four gates in [maintaining](maintaining.md#compatibility-changes). |
+| Support a new client version | `writers/registry.py` and the client's writer | `scripts/watch_clients.py` first: a newer version that passes needs no change. Otherwise version-specific fixtures, isolated probes with `scripts/probe_native.py`, and the four gates in [maintaining](maintaining.md#compatibility-changes). |
 | Read a new storage format | `readers/<client>.py` | Fixtures under `tests/fixtures/readers`, `tests/test_readers_native.py`. |
 | Change what context is sent | `projection.py`, `history.py` | `tests/test_projection.py`, `tests/test_variants.py`. |
 | Add a command or option | `cli.py` or `sync_cli.py` | Catalog texts in both languages, `tests/test_cli.py`, then regenerate the [command reference](cli-reference.md). |

@@ -91,16 +91,16 @@ Session Bridge reads the source conversation without changing it, stores a compl
 
 ## Compatibility
 
-Session Bridge writes native sessions only for client versions where four things were observed: the session persists, it shows in the assistant's history, it resumes from a cold start, and the model receives the imported context.
+Session Bridge writes native sessions for client versions where four things were observed: the session persists, it shows in the assistant's history, it resumes from a cold start, and the model receives the imported context. Newer versions of the same major version work too: their format is checked on every transfer, so an assistant update does not wait for a Session Bridge release unless the format changed.
 
-| Platform | Assistant | Native sessions |
-| --- | --- | --- |
-| Windows x64 | Claude Code 2.1.304 | Enabled |
-| Windows x64 | OpenCode 2.0.29 | Enabled, up to 9,362 messages |
-| Windows x64 | Codex CLI 0.159.0 | Enabled, up to 128 MiB per conversation file |
-| Linux and WSL | Any | Not enabled; handoff is available |
+| Platform | Assistant | Verified | Native sessions |
+| --- | --- | --- | --- |
+| Windows x64 | Claude Code | 2.1.304, 2.1.308 | 2.1.304 and newer 2.x |
+| Windows x64 | OpenCode | 2.0.29, 2.1.3 | 2.0.29 and newer 2.x, up to 9,362 messages |
+| Windows x64 | Codex CLI | 0.159.0, 0.163.0 | 0.159.0 and newer 0.x, up to 128 MiB per conversation file |
+| Linux and WSL | Any | — | Not enabled; handoff is available |
 
-All six directions between the three Windows assistants were exercised with Claude Code 2.1.302; the directions into Claude Code were not run again on 2.1.304. Any other version is refused for native writing until it has been verified, and handoff remains available. The [compatibility evidence](docs/native-compatibility.md) and the [verification record](docs/verification.md) describe exactly what was tested.
+All six directions between the three Windows assistants were exercised with the newest verified versions. Older versions, other major versions and OpenCode 1.x are refused for native writing, and handoff remains available. The [compatibility evidence](docs/native-compatibility.md) and the [verification record](docs/verification.md) describe exactly what was tested.
 
 ## Synchronization
 

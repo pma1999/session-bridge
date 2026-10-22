@@ -2,8 +2,12 @@
 
 This file records notable user-facing changes. Version numbers refer to the project package.
 
-## Unreleased
+## 0.8.1
 
+- Native sessions keep working when an assistant updates. A version newer than the oldest verified one, with the same major number, is now written to natively, and its format is checked on every transfer: Claude Code's newest sessions must still have the shape Session Bridge writes (otherwise nothing is written, `native_format_changed`), and Codex and OpenCode read the new session back themselves. Before, only the exact verified versions were accepted, so every assistant update needed a new release. Older versions and other major versions are still refused. The summary and `doctor` say when a version is newer than the verified ones.
+- Verified Claude Code 2.1.308, Codex CLI 0.163.0 and OpenCode 2.1.3 with the four native checks and all six directions.
+- A linked conversation no longer stops synchronizing with `sync_profile_changed` when one of the assistants updates.
+- A weekly *Client watch* workflow (`scripts/watch_clients.py`) probes the newest Claude Code, Codex and OpenCode and opens an issue when one changes its format.
 - Documentation rewritten for users and contributors: a new README with screenshots of the real interface, a Spanish README (`README.es.md`), a [user guide](docs/user-guide.md), an [updates guide](docs/updates.md), a reorganized [synchronization guide](docs/synchronization.md), a [command reference](docs/cli-reference.md) generated from the command line, and a rewritten [architecture](docs/architecture.md), contributing guide and maintainer guide.
 - `scripts/build_docs.py` generates the command reference and the screenshots; tests check that documented commands and options exist, that links and anchors resolve, and that the generated reference is current.
 

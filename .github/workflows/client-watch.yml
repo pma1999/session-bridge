@@ -1,0 +1,55 @@
+name: Client watch
+# Weekly: the newest Claude Code, Codex and OpenCode against the native writers.
+# A failure means a client changed its format, so native writing needs work before a release.
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: client-watch
+  cancel-in-progress: false
+jobs:
+  watch:
+    name: Newest clients
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - run: python -m pip install -r requirements.lock
+      - run: python -m pip install --no-deps -e .
+      - run: python scripts/watch_clients.py --summary "$env:GITHUB_STEP_SUMMARY"
+  report:
+    # A separate job, so nothing the clients' install scripts did can reach the token.
+    name: Report a change
+    needs: watch
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      TITLE: 'Client watch: a newer client needs work before native writing'
+    steps:
+      - run: |
+          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number')
+          body="The weekly check of the newest clients failed: $RUN_URL"
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$body"
+          fi

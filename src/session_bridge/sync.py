@@ -65,6 +65,11 @@ def _promote(link, key):
     endpoints.append(endpoints.pop(index))
 
 
+
+def same_profile(first, second):
+    """Whether two recorded profiles name the same installation; an assistant update keeps it."""
+    return {k: v for k, v in first.items() if k != "version"} == {k: v for k, v in second.items() if k != "version"}
+
 class SyncService:
     """One serialized revision graph, explicitly linked Windows endpoints, no inference."""
 
@@ -104,7 +109,7 @@ class SyncService:
 
     def _read(self, endpoint):
         current = self._profile(endpoint["profile"]["id"])
-        if current.model_dump(mode="json") != endpoint["profile"]:
+        if not same_profile(current.model_dump(mode="json"), endpoint["profile"]):
             raise BridgeError(
                 "sync_profile_changed",
                 "error.sync_profile_changed.profile",
@@ -196,7 +201,7 @@ class SyncService:
         if transfer.state != "completed" or transfer.mode != "native" or not transfer.receipt:
             raise BridgeError("sync_transfer_unverified")
         profile = self._profile(transfer.target_profile)
-        if transfer.target and transfer.target.model_dump(mode="json") != profile.model_dump(mode="json"):
+        if transfer.target and not same_profile(transfer.target.model_dump(mode="json"), profile.model_dump(mode="json")):
             raise BridgeError("sync_profile_changed", "error.sync_profile_changed.target")
         archived, projection = self.bridge._archived_context(transfer)
         expected = [(m.role, m.text) for m in projection.messages]
@@ -542,7 +547,7 @@ class SyncService:
             endpoint
             for endpoint in value["endpoints"]
             if endpoint.get("enabled", True)
-            and endpoint["profile"] == profile.model_dump(mode="json")
+            and same_profile(endpoint["profile"], profile.model_dump(mode="json"))
             and endpoint["revision_id"] == revision_id
             and not endpoint["pending"]
             and not endpoint["error"]

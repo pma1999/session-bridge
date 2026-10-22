@@ -32,6 +32,9 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description="Isolated native Windows sync acceptance")
     parser.add_argument("--root", type=Path)
+    parser.add_argument(
+        "--client", action="append", default=[], metavar="TOOL=PATH", help="Use this executable for a client"
+    )
     args = parser.parse_args()
     root = (args.root or ROOT / "work" / "sync" / uuid.uuid4().hex[:10]).resolve()
     if not root.is_relative_to((ROOT / "work").resolve()):
@@ -39,7 +42,8 @@ def main():
     root.mkdir(parents=True, exist_ok=False)
     project = root / "project with spaces á"
     project.mkdir()
-    clients = {tool: executable(tool) for tool in ("claude", "opencode", "codex")}
+    chosen = dict(item.split("=", 1) for item in args.client)
+    clients = {tool: chosen.get(tool) or executable(tool) for tool in ("claude", "opencode", "codex")}
     if not all(clients.values()):
         raise RuntimeError("All three installed Windows clients are required")
     # Run both managed-config preflights. No common home variable is changed.

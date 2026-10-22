@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "session-bridge"
-version = "0.8.0"
+version = "0.8.1"
 description = "Local, auditable coding-agent session exchange"
 readme = "README.md"
 license = "MIT"

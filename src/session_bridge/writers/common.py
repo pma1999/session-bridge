@@ -55,11 +55,19 @@ def run(profile, args, *, cwd, timeout=90):
         raise BridgeError("client_unavailable") from None
 
 
-def check_version(profile, expected, *, cwd):
+def semver(text):
+    """The first ``X.Y.Z`` in ``text`` as a tuple of numbers, or ``None``."""
+    found = re.search(r"(?<!\d)(\d+)\.(\d+)\.(\d+)(?!\d)", text)
+    return tuple(int(part) for part in found.groups()) if found else None
+
+
+def check_version(profile, accepted, *, cwd):
+    """The version the client binary reports, refused unless ``accepted(version)`` says otherwise."""
     result = run(profile, ["--version"], cwd=cwd, timeout=15)
     found = re.search(r"(?<!\d)(\d+\.\d+\.\d+)(?!\d)", result.stdout)
-    if result.returncode or not found or found.group(1) != expected:
+    if result.returncode or not found or not accepted(found.group(1)):
         raise BridgeError("native_version_changed")
+    return found.group(1)
 
 
 def detect_version(profile):

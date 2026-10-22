@@ -1,4 +1,4 @@
-"""Claude's private JSONL format, enabled only by exact-version runtime gates."""
+"""Claude's private JSONL format, enabled by the version gates in ``registry``."""
 
 from __future__ import annotations
 
@@ -52,6 +52,83 @@ def transcript(request):
     if request.title:
         rows.append({"type": "custom-title", "customTitle": request.title, "sessionId": request.native_id})
     return rows
+
+
+# How many recent sessions, and how much of each, the format check reads.
+_SAMPLE_FILES = 50
+_SAMPLE_BYTES = 4 * 1024 * 1024
+
+
+def _message_row(row):
+    """Whether ``row`` is a message with every field ``transcript`` writes, in the same shape."""
+    message = row.get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    blocks_ok = isinstance(content, list) and all(
+        isinstance(block, dict) and isinstance(block.get("type"), str) for block in content
+    )
+    return (
+        row.get("type") in {"user", "assistant"}
+        and isinstance(message, dict)
+        and message.get("role") == row["type"]
+        and (isinstance(content, str) or blocks_ok)
+        and all(isinstance(row.get(name), str) for name in ("uuid", "sessionId", "cwd", "timestamp"))
+        and "parentUuid" in row
+        and (row["parentUuid"] is None or isinstance(row["parentUuid"], str))
+        and isinstance(row.get("isSidechain"), bool)
+    )
+
+
+def _recent_sessions(home):
+    """The most recently changed session files, skipping links and files that vanish meanwhile."""
+    root = Path(home) / "projects"
+    found = []
+    try:
+        candidates = list(root.glob("*/*.jsonl")) if root.is_dir() else []
+    except OSError:
+        return []
+    for path in candidates:
+        try:
+            if path.is_symlink() or path.parent.is_symlink():
+                continue
+            found.append((path.stat().st_mtime, path))
+        except OSError:
+            continue
+    found.sort(key=lambda item: item[0], reverse=True)
+    return [path for _, path in found[:_SAMPLE_FILES]]
+
+
+def check_format(profile, installed):
+    """Refuse when the sessions this Claude Code version wrote no longer have the shape ``transcript`` writes.
+
+    It reads the start and the end of the most recent sessions, keeps the rows the installed version wrote and
+    needs one message row in our shape among them. When that version has not written a session yet
+    there is nothing to compare, and the write goes ahead.
+    """
+    rows = []
+    for path in _recent_sessions(profile.home):
+        try:
+            with path.open("rb") as handle:
+                data = handle.read(_SAMPLE_BYTES)
+                # A session continued in the new version has its newest rows at the end.
+                size = handle.seek(0, 2)
+                if size > 2 * _SAMPLE_BYTES:
+                    handle.seek(size - _SAMPLE_BYTES)
+                    data += b"\n" + handle.read(_SAMPLE_BYTES)
+                elif size > _SAMPLE_BYTES:
+                    handle.seek(_SAMPLE_BYTES)
+                    data += handle.read()
+        except OSError:
+            continue
+        text = data.decode("utf-8", errors="replace")
+        for line in text.splitlines():
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue  # Also the last line, when the read stopped inside it.
+            if isinstance(row, dict) and "sessionBridge" not in row and row.get("version") == installed:
+                rows.append(row)
+    if rows and not any(_message_row(row) for row in rows):
+        raise BridgeError("native_format_changed", version=installed)
 
 
 def locate(profile, native_id):

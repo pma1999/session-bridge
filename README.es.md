@@ -91,16 +91,16 @@ Session Bridge lee la conversación de origen sin modificarla, guarda un archivo
 
 ## Compatibilidad
 
-Session Bridge solo escribe sesiones nativas para las versiones de cada asistente en las que se han comprobado cuatro cosas: la sesión persiste, aparece en el historial del asistente, se reanuda al volver a abrir el asistente y el modelo recibe el contexto importado.
+Session Bridge escribe sesiones nativas para las versiones de cada asistente en las que se han comprobado cuatro cosas: la sesión persiste, aparece en el historial del asistente, se reanuda al volver a abrir el asistente y el modelo recibe el contexto importado. Las versiones más nuevas con el mismo número mayor también funcionan: su formato se comprueba en cada transferencia, así que una actualización del asistente no espera a una versión de Session Bridge salvo que cambie el formato.
 
-| Plataforma | Asistente | Sesiones nativas |
-| --- | --- | --- |
-| Windows x64 | Claude Code 2.1.304 | Activadas |
-| Windows x64 | OpenCode 2.0.29 | Activadas, hasta 9.362 mensajes |
-| Windows x64 | Codex CLI 0.159.0 | Activadas, hasta 128 MiB por archivo de conversación |
-| Linux y WSL | Cualquiera | No activadas; el handoff está disponible |
+| Plataforma | Asistente | Verificadas | Sesiones nativas |
+| --- | --- | --- | --- |
+| Windows x64 | Claude Code | 2.1.304, 2.1.308 | 2.1.304 y posteriores 2.x |
+| Windows x64 | OpenCode | 2.0.29, 2.1.3 | 2.0.29 y posteriores 2.x, hasta 9.362 mensajes |
+| Windows x64 | Codex CLI | 0.159.0, 0.163.0 | 0.159.0 y posteriores 0.x, hasta 128 MiB por archivo de conversación |
+| Linux y WSL | Cualquiera | — | No activadas; el handoff está disponible |
 
-Se han probado las seis direcciones entre los tres asistentes de Windows con Claude Code 2.1.302; las direcciones hacia Claude Code no se han vuelto a probar con la 2.1.304. Cualquier otra versión se rechaza para escritura nativa hasta que se verifique, y el handoff sigue disponible. Las [pruebas de compatibilidad](docs/native-compatibility.md) y el [registro de verificación](docs/verification.md) describen exactamente qué se ha probado.
+Se han probado las seis direcciones entre los tres asistentes de Windows con las versiones verificadas más recientes. Las versiones anteriores, las de otro número mayor y OpenCode 1.x se rechazan para escritura nativa, y el handoff sigue disponible. Las [pruebas de compatibilidad](docs/native-compatibility.md) y el [registro de verificación](docs/verification.md) describen exactamente qué se ha probado.
 
 ## Sincronización
 

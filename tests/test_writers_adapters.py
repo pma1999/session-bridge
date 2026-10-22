@@ -108,15 +108,71 @@ def test_native_unknown_version_never_writes_or_silently_falls_back(tmp_path, to
     assert not Path(req.profile.home).exists()
 
 
+@pytest.mark.parametrize("binary", ["3.0.0", "2.1.100", "not a version"])
 def test_declared_verified_claude_version_cannot_bypass_actual_binary_check(
-    tmp_path, monkeypatch, verified_windows_platform
+    tmp_path, monkeypatch, verified_windows_platform, binary
 ):
     req = request(tmp_path)
-    monkeypatch.setattr(common, "run", lambda *a, **k: subprocess.CompletedProcess([], 0, "2.1.999", ""))
+    monkeypatch.setattr(common, "run", lambda *a, **k: subprocess.CompletedProcess([], 0, binary, ""))
     with pytest.raises(BridgeError) as exc:
         registry.write(req)
     assert exc.value.code == "native_version_changed"
     assert not Path(req.profile.home).exists()
+
+
+def claude_session(home, version, row_shape=None):
+    """A session the installed Claude Code wrote, as the format check reads it."""
+    folder = Path(home) / "projects" / "C--work"
+    folder.mkdir(parents=True, exist_ok=True)
+    row = row_shape or {
+        "type": "user",
+        "message": {"role": "user", "content": [{"type": "text", "text": "hi"}]},
+        "uuid": str(uuid.uuid4()),
+        "parentUuid": None,
+        "sessionId": str(uuid.uuid4()),
+        "isSidechain": False,
+        "cwd": "C:/work",
+        "version": version,
+        "timestamp": "2026-10-22T10:00:00Z",
+    }
+    (folder / f"{uuid.uuid4()}.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+
+def test_newer_claude_with_unchanged_format_writes_natively(tmp_path, monkeypatch, verified_windows_platform):
+    req = request(tmp_path)
+    req.profile.version = "2.1.999"
+    claude_session(req.profile.home, "2.1.999")
+    monkeypatch.setattr(common, "run", lambda *a, **k: subprocess.CompletedProcess([], 0, "2.1.999 (Claude Code)", ""))
+    receipt = registry.write(req)
+    assert receipt.evidence["verified_messages"] == 4
+
+
+def test_newer_claude_with_changed_format_refuses_before_writing(tmp_path, monkeypatch, verified_windows_platform):
+    req = request(tmp_path)
+    req.profile.version = "2.1.999"
+    changed = {"kind": "user", "payload": {"text": "hi"}, "id": "x", "version": "2.1.999"}
+    claude_session(req.profile.home, "2.1.999", changed)
+    before = sorted(Path(req.profile.home).rglob("*.jsonl"))
+    monkeypatch.setattr(common, "run", lambda *a, **k: subprocess.CompletedProcess([], 0, "2.1.999", ""))
+    with pytest.raises(BridgeError) as exc:
+        registry.write(req)
+    assert exc.value.code == "native_format_changed"
+    assert sorted(Path(req.profile.home).rglob("*.jsonl")) == before
+
+
+def test_newer_claude_without_sessions_to_compare_still_writes(tmp_path, monkeypatch, verified_windows_platform):
+    req = request(tmp_path)
+    req.profile.version = "2.1.999"
+    monkeypatch.setattr(common, "run", lambda *a, **k: subprocess.CompletedProcess([], 0, "2.1.999", ""))
+    assert registry.write(req).evidence["verified_messages"] == 4
+
+
+def test_verified_claude_skips_the_format_check(tmp_path, monkeypatch, verified_windows_platform):
+    req = request(tmp_path)
+    claude_session(req.profile.home, req.profile.version, {"kind": "changed", "version": req.profile.version})
+    version = req.profile.version
+    monkeypatch.setattr(common, "run", lambda *a, **k: subprocess.CompletedProcess([], 0, version, ""))
+    assert registry.write(req).evidence["verified_messages"] == 4
 
 
 def test_imported_opencode_data_contains_no_foreign_authority(tmp_path):
@@ -452,3 +508,34 @@ def test_native_platform_gate_refuses_unverified_platforms_before_client_or_writ
             registry.write(req)
         assert error.value.code == "native_unsupported"
         assert not Path(req.profile.home).exists()
+
+
+def test_claude_format_check_compares_only_the_installed_version(tmp_path, monkeypatch, verified_windows_platform):
+    req = request(tmp_path)
+    req.profile.version = "2.1.999"
+    # An older version's rows in another shape say nothing about the installed version.
+    claude_session(req.profile.home, "2.1.500", {"kind": "user", "version": "2.1.500"})
+    monkeypatch.setattr(common, "run", lambda *a, **k: subprocess.CompletedProcess([], 0, "2.1.999", ""))
+    assert registry.write(req).evidence["verified_messages"] == 4
+
+
+def test_claude_format_check_reads_a_bounded_prefix(tmp_path, monkeypatch):
+    home = tmp_path / "claude"
+    claude_session(home, "2.1.999")
+    big = home / "projects" / "C--work" / f"{uuid.uuid4()}.jsonl"
+    big.write_text('{"version": "2.1.999", "message": "' + "x" * (claude._SAMPLE_BYTES + 10) + '"}\n', encoding="utf-8")
+    profile = Profile(id="c", tool="claude", home=str(home))
+    claude.check_format(profile, "2.1.999")  # the cut-off line is skipped; the other session conforms
+
+
+def test_claude_format_check_reads_the_end_of_a_long_session(tmp_path):
+    home = tmp_path / "claude"
+    folder = home / "projects" / "C--work"
+    folder.mkdir(parents=True)
+    filler = json.dumps({"version": "2.1.304", "type": "user", "pad": "x" * 1000}) + "\n"
+    changed = json.dumps({"kind": "user", "version": "2.1.999"}) + "\n"
+    content = filler * (3 * claude._SAMPLE_BYTES // len(filler)) + changed
+    (folder / f"{uuid.uuid4()}.jsonl").write_text(content, encoding="utf-8")
+    with pytest.raises(BridgeError) as exc:
+        claude.check_format(Profile(id="c", tool="claude", home=str(home)), "2.1.999")
+    assert exc.value.code == "native_format_changed"

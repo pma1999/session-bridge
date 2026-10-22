@@ -630,3 +630,14 @@ def test_a_session_without_a_recorded_folder_is_not_reused_for_another_folder(wo
     other.mkdir()
     opened = world.service.open(link["id"], "claude", cwd=str(other), launch=False)
     assert opened["reused"] is False and opened["native_id"] != "source"
+
+
+def test_an_assistant_update_does_not_break_a_link(world):
+    key = world.seed()
+    link = world.service.link(key)
+    world.profiles["claude"].version = "9.9.9"
+    world.append(key)
+    result = world.service.poll(force=True)
+    assert result["errors"] == []
+    assert result["changed"] == 1
+    assert world.service.status(link["id"])["state"] != "unlinked"
